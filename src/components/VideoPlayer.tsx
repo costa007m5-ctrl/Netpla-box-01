@@ -337,7 +337,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ movie, onClose, profileId, pr
       
       // If it's already a fast_stream URL, use it directly
       if (u.includes('workers.dev') && u.includes('fast_stream')) {
-        console.log("Direct fast_stream URL detected, using directly:", u);
         setExtractedVideoUrl(u);
         setFinalVideoUrl(u);
         return;
@@ -365,7 +364,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ movie, onClose, profileId, pr
                              vid.src || (vid.data && vid.data.url) || vid.dlink;
                
                if (stUrl) {
-                  console.log("Extracted Terabox URL:", stUrl, "Quality:", vid.recommended_quality || 'unknown');
                   setExtractedVideoUrl(stUrl);
                   setFinalVideoUrl(stUrl);
                }
@@ -446,7 +444,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ movie, onClose, profileId, pr
       requestLandscape();
     } else if (isWorkersStream || isFastStreamUrl || isM3U8Direct) {
       // Direct HLS/Terabox fast_stream - always use Netflix player
-      console.log("Detected direct HLS/fast_stream URL, using Netflix player");
       setPlayerStyle('netflix');
       requestLandscape();
     } else if (isKingXUrl || isTera) {

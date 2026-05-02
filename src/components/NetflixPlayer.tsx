@@ -99,19 +99,13 @@ const NetflixPlayer: React.FC<NetflixPlayerProps> = ({
       // Remove any trailing whitespace after cleanup
       cleanSrc = cleanSrc?.trim();
       
-      console.log('[v0] Original src:', src);
-      console.log('[v0] Cleaned src:', cleanSrc);
-      
       // Detect if it's a direct Terabox fast_stream URL (workers.dev)
       const isTeraboxFastStream = cleanSrc?.includes('workers.dev') && cleanSrc?.includes('fast_stream');
       const isDirectM3U8 = cleanSrc?.toLowerCase().endsWith('.m3u8');
       
-      console.log('[v0] isTeraboxFastStream:', isTeraboxFastStream, 'isDirectM3U8:', isDirectM3U8);
-      
       // If it's already a direct fast_stream or m3u8 URL, use it directly
       if (isTeraboxFastStream || isDirectM3U8) {
         vToPlay = cleanSrc;
-        console.log('[v0] Direct Terabox/M3U8 URL detected:', vToPlay);
       } else if (cleanSrc && !cleanSrc.includes('kingx.dev')) {
         // Try to extract nested video_url parameter
         if (cleanSrc.includes('video_url=')) {
@@ -633,23 +627,26 @@ const NetflixPlayer: React.FC<NetflixPlayerProps> = ({
         if (lowerSrc.includes('.m3u8')) {
           let videoToPlayProxied = videoToPlay;
           
-          // Detect if it's a Terabox workers.dev stream - always use proxy for CORS
+          // Detect stream type
           const isWorkersDevStream = lowerSrc.includes('workers.dev');
           const isTeraApiStream = lowerSrc.includes('tera-api') || lowerSrc.includes('iteraplay');
           const isFastStream = lowerSrc.includes('fast_stream');
           
+          // Workers.dev streams have CORS enabled (access-control-allow-origin: *)
+          // So we can access them directly without proxy - proxy actually causes 403 errors
+          // Only use proxy for streams that need it (like kingx.dev)
           if (isWorkersDevStream || isTeraApiStream || isFastStream) {
+            // Use direct URL - these have CORS headers
+            videoToPlayProxied = videoToPlay;
+          } else if (lowerSrc.includes('kingx.dev')) {
+            // Only kingx needs proxy
             videoToPlayProxied = `/api/hls-proxy?url=${encodeURIComponent(videoToPlay)}`;
-            console.log("Forcing HLS Proxy for Terabox stream:", videoToPlayProxied);
           }
           
           const canPlayNative = video.canPlayType('application/vnd.apple.mpegurl') !== '';
           const isIOS = /iP(hone|od|ad)/i.test(navigator.userAgent);
           
           if (Hls.isSupported() && !isIOS) {
-            console.log("Initializing HLS.js for:", videoToPlayProxied);
-            
-            console.log('[v0] Initializing HLS.js with optimized config');
             // Optimized HLS configuration for Terabox fast_stream
             const hls = new Hls({
               // Worker and performance
@@ -701,21 +698,22 @@ const NetflixPlayer: React.FC<NetflixPlayerProps> = ({
               
               xhrSetup: (xhr, url) => {
                 xhr.withCredentials = false;
-                // Add timeout for faster failure detection
-                xhr.timeout = 20000;
+                xhr.timeout = 30000;
+                
+                // Set headers for Terabox streams - these workers.dev URLs need proper headers
+                if (url.includes('workers.dev') || url.includes('tera-api') || url.includes('iteraplay')) {
+                  // Note: Some headers cannot be set via XHR due to browser restrictions
+                  // But the server already has CORS enabled, so this should work
+                }
               }
             });
             hls.attachMedia(video);
             hls.on(Hls.Events.MEDIA_ATTACHED, () => {
-              console.log('[v0] HLS Media Attached');
               mediaAttachedRef.current = true;
               videoToPlayRef.current = videoToPlayProxied;
               setLoadingProgress(35);
               
-              // Always load source immediately for fast_stream URLs
-              // The autoStartLoad config handles automatic loading, but we explicitly call loadSource
-              // to ensure the correct proxied URL is used
-              console.log('[v0] Loading HLS source:', videoToPlayProxied);
+              // Load source immediately after media attached
               hls.loadSource(videoToPlayProxied);
               startedHlsRef.current = true;
               
@@ -730,17 +728,14 @@ const NetflixPlayer: React.FC<NetflixPlayerProps> = ({
               }
             });
             hls.on(Hls.Events.MANIFEST_LOADING, () => {
-              console.log('[v0] HLS Manifest Loading...');
               setLoadingProgress(40);
             });
             
-            hls.on(Hls.Events.MANIFEST_LOADED, (event, data) => {
-              console.log('[v0] HLS Manifest Loaded, URL:', data.url?.substring(0, 50));
+            hls.on(Hls.Events.MANIFEST_LOADED, () => {
               setLoadingProgress(50);
             });
             
             hls.on(Hls.Events.MANIFEST_PARSED, (event, data) => {
-              console.log("[v0] HLS Manifest Parsed, levels:", data.levels.length);
               let parsedLevels = data.levels.map((l, i) => ({ id: i, height: l.height, bitrate: l.bitrate })).sort((a, b) => b.height - a.height);
               setQualityLevels(parsedLevels);
               setLoadingProgress(60);
@@ -750,7 +745,7 @@ const NetflixPlayer: React.FC<NetflixPlayerProps> = ({
               
               if (video) {
                  video.play().catch(e => { 
-                   console.warn("[v0] Autoplay block", e); 
+                   console.warn("Autoplay block", e); 
                    setAutoplayBlocked(true); 
                    setShowControls(true); 
                    setIsPlaying(false); 
@@ -758,17 +753,11 @@ const NetflixPlayer: React.FC<NetflixPlayerProps> = ({
               }
             });
             
-            hls.on(Hls.Events.LEVEL_LOADED, (event, data) => {
-              console.log('[v0] HLS Level Loaded, duration:', data.details.totalduration);
+            hls.on(Hls.Events.LEVEL_LOADED, () => {
               setLoadingProgress(70);
             });
             
-            hls.on(Hls.Events.FRAG_LOADING, (event, data) => {
-              console.log('[v0] HLS Fragment Loading:', data.frag.sn);
-            });
-            
-            hls.on(Hls.Events.FRAG_BUFFERED, (event, data) => {
-              console.log('[v0] HLS Fragment Buffered:', data.frag.sn);
+            hls.on(Hls.Events.FRAG_BUFFERED, () => {
               setLoadingProgress(prev => Math.min(prev + 5, 99));
             });
 
@@ -806,12 +795,10 @@ const NetflixPlayer: React.FC<NetflixPlayerProps> = ({
                         data.response?.code === 403 || data.response?.code === 404 ||
                         data.response?.code === 503) {
                         // Full reload for manifest errors
-                        console.log("Reloading source:", videoToPlayRef.current);
                         hls.loadSource(videoToPlayRef.current || videoToPlay);
                     } else if (data.details === Hls.ErrorDetails.FRAG_LOAD_ERROR ||
                                data.details === Hls.ErrorDetails.FRAG_LOAD_TIMEOUT) {
                         // For fragment errors, try continuing from current position
-                        console.log("Fragment error, starting load from current position...");
                         hls.startLoad(video?.currentTime || -1);
                     } else {
                         hls.startLoad();
@@ -827,25 +814,21 @@ const NetflixPlayer: React.FC<NetflixPlayerProps> = ({
                 }
               }
               else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
-                console.log("Media error, attempting recovery...");
                 hls.recoverMediaError();
               }
               else {
                 // Other fatal errors - full restart
-                console.log("Unknown fatal error, restarting player...");
                 hls.destroy();
                 initPlayer();
               }
             });
             hlsRef.current = hls;
           } else if (canPlayNative) {
-            // iOS/Safari native HLS support - also needs proxy for CORS
-            console.log("Using native HLS support (iOS/Safari) for:", videoToPlayProxied);
+            // iOS/Safari native HLS support
             video.src = videoToPlayProxied;
             video.preload = 'auto';
             video.load();
             video.addEventListener('loadedmetadata', () => {
-              console.log("Native HLS: metadata loaded, duration:", video.duration);
               let safeStartPoint = startPoint;
               if (safeStartPoint > 0) {
                 const duration = video.duration || 0;

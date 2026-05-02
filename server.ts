@@ -619,8 +619,6 @@ async function startServer() {
       targetUrl = targetUrl.slice(0, -1);
     }
     
-    console.log('[v0] HLS Proxy request for:', targetUrl.substring(0, 100) + '...');
-
     try {
       // Detect source type for proper headers
       const isFromWorker = targetUrl.includes('workers.dev');
@@ -657,8 +655,6 @@ async function startServer() {
         proxyHeaders['Range'] = req.headers.range;
       }
 
-      console.log('[v0] Fetching:', isM3U8 ? 'M3U8' : isSegment ? 'Segment' : 'Other', 'from', targetUrl.substring(0, 80));
-      
       const response = await axios({
         method: 'GET',
         url: targetUrl,
@@ -669,8 +665,6 @@ async function startServer() {
         maxRedirects: 10,
       });
 
-      console.log('[v0] Response status:', response.status, 'Content-Type:', response.headers['content-type']);
-      
       // Get final URL after redirects
       const finalUrl = (response.request as any).res?.responseUrl || targetUrl;
 
