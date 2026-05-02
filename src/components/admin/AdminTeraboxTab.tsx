@@ -17,6 +17,13 @@ export default function AdminTeraboxTab({ movies, onUpdateMovie, onAddMovie }: {
   const [scanningStatus, setScanningStatus] = useState('');
   const [saveLoading, setSaveLoading] = useState(false);
 
+  // Conflict Resolution State
+  const [conflict, setConflict] = useState<{
+    newMovie: Partial<Movie>;
+    existingMovie: Movie;
+    resolve: (decision: 'replace' | 'skip') => void;
+  } | null>(null);
+
   // For Mass Update
   const [updatingMode, setUpdatingMode] = useState(false);
   const [updateLog, setUpdateLog] = useState<string[]>([]);
@@ -142,6 +149,9 @@ export default function AdminTeraboxTab({ movies, onUpdateMovie, onAddMovie }: {
     
     setSaveLoading(true);
     let errorCount = 0;
+    
+    const getYear = (date?: string) => date ? new Date(date).getFullYear() : null;
+
     try {
       for (const item of toSave) {
         const t = item.tmdb_match;
@@ -163,8 +173,37 @@ export default function AdminTeraboxTab({ movies, onUpdateMovie, onAddMovie }: {
           genres: genreNames,
           videoUrl: item.url,
           videoUrl2: item.url,
-          file_name: item.imported_filename
+          file_name: item.imported_filename,
+          release_date: t?.release_date || t?.first_air_date
         };
+
+        // Conflict Detection
+        const existing = movies.find(m => {
+          const matchTitle = (m.title || m.name)?.toLowerCase() === (newMovie.title || newMovie.name)?.toLowerCase();
+          const matchYear = getYear(m.release_date || m.first_air_date) === getYear(newMovie.release_date);
+          return matchTitle && matchYear;
+        });
+
+        if (existing) {
+          setScanningStatus(`Conflito: ${newMovie.title} (${getYear(newMovie.release_date)}) já existe.`);
+          const decision = await new Promise<'replace' | 'skip'>((resolve) => {
+            setConflict({ newMovie, existingMovie: existing, resolve });
+          });
+          setConflict(null);
+
+          if (decision === 'skip') {
+            continue;
+          } else {
+             // Replace logic: Update existing
+             try {
+               await onUpdateMovie({ ...existing, ...newMovie, id: existing.id });
+             } catch(e) {
+               errorCount++;
+             }
+             continue;
+          }
+        }
+
         try {
           await onAddMovie(newMovie);
         } catch(e) {
@@ -483,6 +522,56 @@ export default function AdminTeraboxTab({ movies, onUpdateMovie, onAddMovie }: {
           </div>
         )}
       </div>
+
+      {/* Conflict Resolution Modal */}
+      {conflict && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 md:p-10 bg-black/80 backdrop-blur-sm animate-fade-in">
+          <div className="bg-[#0f0f0f] border border-white/10 rounded-[3rem] w-full max-w-2xl overflow-hidden shadow-2xl">
+            <div className="p-8 border-b border-white/5 bg-gradient-to-r from-red-500/10 to-transparent">
+              <h3 className="text-2xl font-black italic uppercase tracking-tighter text-white flex items-center gap-3">
+                 <RefreshCw className="text-red-500 animate-spin-slow" />
+                 Conteúdo Existente
+              </h3>
+              <p className="text-gray-400 text-sm mt-1">
+                Encontramos um conteúdo com o mesmo nome e data no seu catálogo. O que deseja fazer?
+              </p>
+            </div>
+
+            <div className="p-8 grid grid-cols-2 gap-8">
+               <div className="space-y-4">
+                  <div className="text-[10px] uppercase tracking-widest text-gray-500 font-bold italic">No seu Catálogo</div>
+                  <div className="relative aspect-[2/3] rounded-3xl overflow-hidden border-2 border-white/5">
+                     <img src={conflict.existingMovie.poster_path} className="w-full h-full object-cover opacity-50 grayscale" alt="" />
+                  </div>
+                  <div className="text-sm font-bold text-gray-300">{conflict.existingMovie.title || conflict.existingMovie.name}</div>
+               </div>
+
+               <div className="space-y-4">
+                  <div className="text-[10px] uppercase tracking-widest text-green-500 font-bold italic">Novo Encontrado</div>
+                  <div className="relative aspect-[2/3] rounded-3xl overflow-hidden border-2 border-green-500/30">
+                     <img src={conflict.newMovie.poster_path} className="w-full h-full object-cover" alt="" />
+                  </div>
+                  <div className="text-sm font-bold text-white">{conflict.newMovie.title || conflict.newMovie.name}</div>
+               </div>
+            </div>
+
+            <div className="p-8 bg-white/5 flex flex-col md:flex-row gap-4">
+               <button
+                  onClick={() => conflict.resolve('replace')}
+                  className="flex-1 bg-white text-black py-4 rounded-2xl font-black uppercase tracking-widest italic hover:scale-105 transition-all text-sm"
+               >
+                  Substituir Existente
+               </button>
+               <button
+                  onClick={() => conflict.resolve('skip')}
+                  className="flex-1 bg-white/5 border border-white/10 text-white py-4 rounded-2xl font-black uppercase tracking-widest italic hover:bg-white/10 transition-all text-sm"
+               >
+                  Continuar (Pular)
+               </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );
