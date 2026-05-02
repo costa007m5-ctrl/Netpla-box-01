@@ -612,12 +612,14 @@ const NetflixPlayer: React.FC<NetflixPlayerProps> = ({
           let videoToPlayProxied = videoToPlay;
           if (lowerSrc.includes('workers.dev')) {
             videoToPlayProxied = `/api/hls-proxy?url=${encodeURIComponent(videoToPlay)}`;
+            console.log("Forcing HLS Proxy for workers.dev:", videoToPlayProxied);
           }
           
           const canPlayNative = video.canPlayType('application/vnd.apple.mpegurl') !== '';
           const isIOS = /iP(hone|od|ad)/i.test(navigator.userAgent);
           
           if (Hls.isSupported() && !isIOS) {
+            console.log("Initializing HLS.js for:", videoToPlayProxied);
             const hls = new Hls({
               enableWorker: true,
               lowLatencyMode: true,
@@ -627,45 +629,55 @@ const NetflixPlayer: React.FC<NetflixPlayerProps> = ({
               autoStartLoad: true,
               startLevel: -1,
               startPosition: startPoint > 0 ? startPoint : -1,
-              maxBufferLength: 120,    // Increased for fast loading
-              maxMaxBufferLength: 240, // Increased for fast loading
+              maxBufferLength: 60,
+              maxMaxBufferLength: 600,
               maxBufferHole: 0.5,
-              maxStarvationDelay: 2,
+              maxStarvationDelay: 4,
               maxLoadingDelay: 4,
-              manifestLoadingMaxRetry: 20,
-              levelLoadingMaxRetry: 20,
-              fragLoadingMaxRetry: 20,
-              manifestLoadingRetryDelay: 500,
-              levelLoadingRetryDelay: 500,
-              fragLoadingRetryDelay: 500,
+              manifestLoadingMaxRetry: 25,
+              levelLoadingMaxRetry: 25,
+              fragLoadingMaxRetry: 25,
+              manifestLoadingRetryDelay: 1000,
+              levelLoadingRetryDelay: 1000,
+              fragLoadingRetryDelay: 1000,
+              xhrSetup: (xhr, url) => {
+                xhr.withCredentials = false; // Important for some proxies
+              }
             });
             hls.attachMedia(video);
             hls.on(Hls.Events.MEDIA_ATTACHED, () => {
               mediaAttachedRef.current = true;
               videoToPlayRef.current = videoToPlayProxied;
               attemptStartHlsLoad();
+              setLoadingProgress(35);
               
               if (verificationUrl) {
-                // Fallback: If iframe never fires onLoad or is blocked, start anyway
                 setTimeout(() => {
                   if (!startedHlsRef.current) {
+                    console.log("Verification timeout fallback triggered");
                     iframeLoadedRef.current = true;
                     attemptStartHlsLoad();
                   }
-                }, 2500);
+                }, 3000);
               }
             });
             hls.on(Hls.Events.MANIFEST_PARSED, (event, data) => {
+              console.log("HLS Manifest Parsed, levels:", data.levels.length);
               let parsedLevels = data.levels.map((l, i) => ({ id: i, height: l.height, bitrate: l.bitrate })).sort((a, b) => b.height - a.height);
               setQualityLevels(parsedLevels);
-              setLoadingProgress(50);
+              setLoadingProgress(60);
               
               if (video) {
-                 video.play().catch(e => { console.warn("Autoplay block", e); setAutoplayBlocked(true); setShowControls(true); setIsPlaying(false); });
+                 video.play().catch(e => { 
+                   console.warn("Autoplay block", e); 
+                   setAutoplayBlocked(true); 
+                   setShowControls(true); 
+                   setIsPlaying(false); 
+                 });
               }
             });
             hls.on(Hls.Events.FRAG_BUFFERED, () => {
-              setLoadingProgress(prev => Math.min(prev + 10, 95));
+              setLoadingProgress(prev => Math.min(prev + 5, 99));
             });
 
             hls.on(Hls.Events.ERROR, (event, data) => {

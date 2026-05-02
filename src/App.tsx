@@ -8,6 +8,7 @@ import NetflixPlayer from './components/NetflixPlayer';
 import VideoPlayer from './components/VideoPlayer';
 import CustomUrlModal from './components/CustomUrlModal';
 import MovieDetailsModal from './components/MovieDetailsModal';
+import DuplicateResolveModal from './components/DuplicateResolveModal';
 import WatchPartyModal from './components/WatchPartyModal';
 import SettingsModal from './components/SettingsModal';
 import Login from './components/Login';
@@ -1931,6 +1932,12 @@ export default function App() {
     return saved ? JSON.parse(saved) : null;
   });
 
+  const [pendingDuplicate, setPendingDuplicate] = useState<{
+    movieData: any;
+    existingId: string | number;
+    onResolve: (action: 'substitute' | 'continue') => void;
+  } | null>(null);
+
   const hasTmdbKey = !!import.meta.env.VITE_TMDB_API_KEY;
   const hasSupabase = !!import.meta.env.VITE_SUPABASE_URL && !!import.meta.env.VITE_SUPABASE_ANON_KEY;
 
@@ -2604,12 +2611,58 @@ export default function App() {
           };
         }
 
-        const { error: insertError } = await supabase.from('movies').insert([movieData]);
-        if (!insertError) {
-          setScannerState(prev => prev ? { ...prev, added: prev.added + 1 } : null);
-          notificationService.notifyNewMovie(movieData.title || 'Novo Filme', movieData.poster_path);
-        } else if (insertError.code === '23505') {
-          setScannerState(prev => prev ? { ...prev, skipped: prev.skipped + 1 } : null);
+        // --- DUPLICATE CHECK LOGIC ---
+        let shouldInsert = true;
+        const { data: existingMovie } = await supabase
+          .from('movies')
+          .select('id, title, release_year')
+          .eq('title', movieData.title)
+          .eq('release_year', movieData.release_year)
+          .single();
+
+        if (existingMovie) {
+          // Pause scanner automatically
+          setScannerState(prev => prev ? { ...prev, isPaused: true, status: `Conflito: ${movieData.title}` } : null);
+
+          // Wait for user resolution
+          const decision = await new Promise<'substitute' | 'continue'>((resolve) => {
+            setPendingDuplicate({
+              movieData,
+              existingId: existingMovie.id,
+              onResolve: (action) => {
+                setPendingDuplicate(null);
+                resolve(action);
+              }
+            });
+          });
+
+          // Resume scanner automatically
+          setScannerState(prev => prev ? { ...prev, isPaused: false, status: `Retomando...` } : null);
+
+          if (decision === 'substitute') {
+            const { error: updateError } = await supabase
+              .from('movies')
+              .update(movieData)
+              .eq('id', existingMovie.id);
+
+            if (!updateError) {
+              setScannerState(prev => prev ? { ...prev, added: prev.added + 1 } : null);
+              notificationService.notifyNewMovie(movieData.title || 'Atualizado', movieData.poster_path);
+            }
+          } else {
+            setScannerState(prev => prev ? { ...prev, skipped: prev.skipped + 1 } : null);
+          }
+          shouldInsert = false;
+        }
+
+        if (shouldInsert) {
+          const { error: insertError } = await supabase.from('movies').insert([movieData]);
+          if (!insertError) {
+            setScannerState(prev => prev ? { ...prev, added: prev.added + 1 } : null);
+            notificationService.notifyNewMovie(movieData.title || 'Novo Filme', movieData.poster_path);
+          } else if (insertError.code === '23505') {
+            setScannerState(prev => prev ? { ...prev, skipped: prev.skipped + 1 } : null);
+          }
         }
       } catch (err) {
         console.error(`Erro ao processar arquivo ${file.name}:`, err);
@@ -4589,6 +4642,14 @@ export default function App() {
           onSave={fetchMyMovies}
           onStartScanner={startScanner}
           scannerState={scannerState}
+        />
+      )}
+
+      {pendingDuplicate && (
+        <DuplicateResolveModal
+          newMovie={pendingDuplicate.movieData}
+          existingId={pendingDuplicate.existingId}
+          onResolve={pendingDuplicate.onResolve}
         />
       )}
 

@@ -52,7 +52,12 @@ export default function AdminTeraboxTab({ movies, onUpdateMovie, onAddMovie }: {
   const videoUrlToPlay = React.useMemo(() => {
     if (!testResult) return null;
     let vid = testResult.list && testResult.list.length > 0 ? testResult.list[0] : testResult;
-    return vid.fast_stream_url?.['1080p'] || vid.fast_stream_url?.['720p'] || vid.fast_stream_url?.['480p'] || vid.fast_stream_url?.['360p'] || vid.normal_dlink || vid.stream_url || vid.url || vid.video_url || vid.src || (vid.data && vid.data.url) || vid.dlink;
+    let url = vid.fast_stream_url?.['1080p'] || vid.fast_stream_url?.['720p'] || vid.fast_stream_url?.['480p'] || vid.fast_stream_url?.['360p'] || vid.normal_dlink || vid.stream_url || vid.url || vid.video_url || vid.src || (vid.data && vid.data.url) || vid.dlink;
+    
+    if (url && (url.includes('workers.dev') || url.includes('.m3u8'))) {
+      return `/api/hls-proxy?url=${encodeURIComponent(url)}`;
+    }
+    return url;
   }, [testResult]);
 
   useEffect(() => {

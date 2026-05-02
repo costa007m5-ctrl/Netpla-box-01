@@ -19,14 +19,15 @@ const DEFAULT_POSTERS = [
   'https://image.tmdb.org/t/p/w500/A7uByuyGKE69uYv7SFF9vI9Ym96.jpg',
 ];
 
+import tmdb, { requests } from '../services/tmdb';
+
 const AppInfo: React.FC<AppInfoProps> = ({ onContinue, movies }) => {
   const [displayMovies, setDisplayMovies] = useState<any[]>([]);
 
   useEffect(() => {
     const fetchTrending = async () => {
       try {
-        const res = await fetch(`https://api.themoviedb.org/3/trending/all/day?api_key=${import.meta.env.VITE_TMDB_API_KEY}&language=pt-BR`);
-        const data = await res.json();
+        const { data } = await tmdb.get(requests.fetchTrending, { params: { language: 'pt-BR' } });
         if (data && data.results && data.results.length > 0) {
           // Shuffle and get enough movies for the wall
           const trending = data.results.filter((m: any) => m.poster_path);
