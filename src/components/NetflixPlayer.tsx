@@ -609,6 +609,11 @@ const NetflixPlayer: React.FC<NetflixPlayerProps> = ({
         const startPoint = initialTime > 0 ? Math.max(0, initialTime - 2) : -1;
         
         if (lowerSrc.includes('.m3u8')) {
+          let videoToPlayProxied = videoToPlay;
+          if (lowerSrc.includes('workers.dev')) {
+            videoToPlayProxied = `/api/hls-proxy?url=${encodeURIComponent(videoToPlay)}`;
+          }
+          
           const canPlayNative = video.canPlayType('application/vnd.apple.mpegurl') !== '';
           const isIOS = /iP(hone|od|ad)/i.test(navigator.userAgent);
           
@@ -616,16 +621,20 @@ const NetflixPlayer: React.FC<NetflixPlayerProps> = ({
             const hls = new Hls({
               enableWorker: true,
               lowLatencyMode: true,
+              backBufferLength: 90,
               startFragPrefetch: true,
-              capLevelToPlayerSize: true, // Limits initial quality based on player frame size to start faster
+              capLevelToPlayerSize: true,
               autoStartLoad: true,
-              startLevel: -1, // Use auto level
+              startLevel: -1,
               startPosition: startPoint > 0 ? startPoint : -1,
-              maxBufferLength: 30,
-              maxMaxBufferLength: 60,
-              manifestLoadingMaxRetry: 10,
-              levelLoadingMaxRetry: 10,
-              fragLoadingMaxRetry: 10,
+              maxBufferLength: 120,    // Increased for fast loading
+              maxMaxBufferLength: 240, // Increased for fast loading
+              maxBufferHole: 0.5,
+              maxStarvationDelay: 2,
+              maxLoadingDelay: 4,
+              manifestLoadingMaxRetry: 20,
+              levelLoadingMaxRetry: 20,
+              fragLoadingMaxRetry: 20,
               manifestLoadingRetryDelay: 500,
               levelLoadingRetryDelay: 500,
               fragLoadingRetryDelay: 500,
@@ -633,7 +642,7 @@ const NetflixPlayer: React.FC<NetflixPlayerProps> = ({
             hls.attachMedia(video);
             hls.on(Hls.Events.MEDIA_ATTACHED, () => {
               mediaAttachedRef.current = true;
-              videoToPlayRef.current = videoToPlay;
+              videoToPlayRef.current = videoToPlayProxied;
               attemptStartHlsLoad();
               
               if (verificationUrl) {
@@ -695,7 +704,7 @@ const NetflixPlayer: React.FC<NetflixPlayerProps> = ({
             });
             hlsRef.current = hls;
           } else if (canPlayNative) {
-            video.src = videoToPlay;
+            video.src = videoToPlayProxied;
             video.load();
             video.addEventListener('loadedmetadata', () => {
               let safeStartPoint = startPoint;
@@ -709,7 +718,11 @@ const NetflixPlayer: React.FC<NetflixPlayerProps> = ({
             video.play().catch(e => { console.warn("Autoplay block", e); setAutoplayBlocked(true); setShowControls(true); setIsPlaying(false); });
           }
         } else {
-          video.src = videoToPlay;
+          let videoToPlayProxiedPlain = videoToPlay;
+          if (lowerSrc.includes('workers.dev')) {
+             videoToPlayProxiedPlain = `/api/hls-proxy?url=${encodeURIComponent(videoToPlay)}`;
+          }
+          video.src = videoToPlayProxiedPlain;
           video.load();
           video.addEventListener('loadedmetadata', () => {
                let safeStartPoint = startPoint;

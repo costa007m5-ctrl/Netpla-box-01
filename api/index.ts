@@ -284,10 +284,11 @@ router.get('/hls-proxy', async (req, res) => {
       headers: {
         ...req.headers,
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Referer': 'https://player.kingx.dev/',
-        'Origin': 'https://player.kingx.dev',
+        'Referer': targetUrl.includes('workers.dev') ? 'https://www.terabox.com/' : 'https://player.kingx.dev/',
+        'Origin': targetUrl.includes('workers.dev') ? 'https://www.terabox.com' : 'https://player.kingx.dev',
         host: new URL(targetUrl).host,
       },
+      timeout: 30000,
       validateStatus: () => true,
     });
 
