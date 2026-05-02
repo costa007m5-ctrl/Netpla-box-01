@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 100">
+  <defs>
+    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#e50914;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#b20710;stop-opacity:1" />
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2.5" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <rect width="40" height="40" x="10" y="30" rx="8" fill="url(#grad)" filter="url(#glow)" />
+  <path d="M22 42l10 8-10 8V42z" fill="white" />
+  <text x="65" y="68" font-family="Arial, sans-serif" font-weight="900" font-style="italic" font-size="48" fill="white" letter-spacing="-2">NET<tspan fill="#e50914">PLAY</tspan></text>
+</svg>
