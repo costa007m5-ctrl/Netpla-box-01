@@ -278,17 +278,26 @@ router.get('/hls-proxy', async (req, res) => {
 
   try {
     const isM3U8 = targetUrl.includes('.m3u8') || targetUrl.includes('.isml');
+    const isFromWorker = targetUrl.includes('workers.dev');
     const proxyHeaders: any = {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       'Accept': '*/*',
       'Accept-Language': 'en-US,en;q=0.9,pt-BR;q=0.8,pt;q=0.7',
       'Connection': 'keep-alive',
-      'Referer': targetUrl.includes('workers.dev') ? 'https://www.terabox.com/' : 'https://player.kingx.dev/',
-      'Origin': targetUrl.includes('workers.dev') ? 'https://www.terabox.com' : 'https://player.kingx.dev',
+      'Referer': isFromWorker ? 'https://www.terabox.com/' : 'https://player.kingx.dev/',
+      'Origin': isFromWorker ? 'https://www.terabox.com' : 'https://player.kingx.dev',
       'Sec-Fetch-Dest': 'video',
       'Sec-Fetch-Mode': 'cors',
       'Sec-Fetch-Site': 'cross-site',
     };
+
+    if (isFromWorker) {
+      // Some workers need exact headers
+      proxyHeaders['Upgrade-Insecure-Requests'] = '1';
+      proxyHeaders['Sec-Ch-Ua'] = '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"';
+      proxyHeaders['Sec-Ch-Ua-Mobile'] = '?0';
+      proxyHeaders['Sec-Ch-Ua-Platform'] = '"Windows"';
+    }
 
     if (req.headers.range) proxyHeaders.range = req.headers.range;
 
@@ -303,16 +312,22 @@ router.get('/hls-proxy', async (req, res) => {
       },
       timeout: 120000, 
       validateStatus: () => true,
+      maxRedirects: 10,
     });
+
+    const finalUrl = (response.request as any).res?.responseUrl || targetUrl;
 
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', '*');
     res.setHeader('Access-Control-Expose-Headers', '*');
     
-    if (isM3U8) {
+    const contentType = (response.headers['content-type'] || '').toLowerCase();
+    const isActuallyM3U8 = isM3U8 || contentType.includes('mpegurl') || contentType.includes('application/x-mpegurl');
+
+    if (isActuallyM3U8) {
       res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
-    } else if (targetUrl.includes('.ts') || response.headers['content-type']?.includes('video/mp2t')) {
+    } else if (targetUrl.includes('.ts') || contentType.includes('video/mp2t')) {
       res.setHeader('Content-Type', 'video/mp2t');
       res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
     }
@@ -322,7 +337,7 @@ router.get('/hls-proxy', async (req, res) => {
 
     res.status(response.status);
 
-    if (isM3U8 || response.headers['content-type']?.includes('mpegurl')) {
+    if (isActuallyM3U8) {
       let m3u8Data = '';
       response.data.on('data', (chunk: Buffer) => { m3u8Data += chunk.toString(); });
       response.data.on('end', () => {
@@ -333,29 +348,26 @@ router.get('/hls-proxy', async (req, res) => {
                   let absoluteUri = trimmedLine;
                   if (!absoluteUri.startsWith('http')) {
                        try {
-                         const baseUrl = targetUrl.split('?')[0];
+                         const baseUrl = finalUrl.split('?')[0];
                          absoluteUri = new URL(absoluteUri, baseUrl).toString();
-                         if (targetUrl.includes('?')) {
-                            const originalParams = targetUrl.split('?')[1];
+                         if (finalUrl.includes('?')) {
+                            const originalParams = finalUrl.split('?')[1];
                             if (!absoluteUri.includes('?')) {
-                                absoluteUri += `?${originalParams}`;
+                                absoluteUri += (absoluteUri.includes('?') ? '&' : '?') + originalParams;
                             }
                          }
                        } catch(e) { return line; }
                   }
-                  // Even if it is absolute, we proxy it to ensure headers are sent
-                  // But avoid double proxying if for some reason worker returns our proxy URL
                   if (!absoluteUri.includes('/api/hls-proxy')) {
                     return `/api/hls-proxy?url=${encodeURIComponent(absoluteUri)}`;
                   }
               }
-              // Handle #EXT-X-KEY and other tags that might have URLs
               if (line.includes('URI="')) {
                 return line.replace(/URI="([^"]+)"/, (match, p1) => {
                   let uri = p1;
                   if (!uri.startsWith('http')) {
                     try {
-                      uri = new URL(uri, targetUrl).toString();
+                      uri = new URL(uri, finalUrl).toString();
                     } catch(e) {}
                   }
                   return `URI="/api/hls-proxy?url=${encodeURIComponent(uri)}"`;

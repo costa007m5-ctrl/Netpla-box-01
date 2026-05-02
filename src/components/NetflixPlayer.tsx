@@ -90,9 +90,14 @@ const NetflixPlayer: React.FC<NetflixPlayerProps> = ({
     
     try {
       // KingX links have Captcha protection, so they must be played via native iframe
-      if (src && !src.includes('kingx.dev')) {
-        if (src.includes('video_url=')) {
-          const urlObj = new URL(src, window.location.origin);
+      let cleanSrc = src?.trim();
+      if (cleanSrc && cleanSrc.endsWith('.')) {
+        cleanSrc = cleanSrc.slice(0, -1);
+      }
+      
+      if (cleanSrc && !cleanSrc.includes('kingx.dev')) {
+        if (cleanSrc.includes('video_url=')) {
+          const urlObj = new URL(cleanSrc, window.location.origin);
           
           let v = urlObj.searchParams.get('video_url');
           let sub = urlObj.searchParams.get('subtitle_url');
@@ -685,23 +690,26 @@ const NetflixPlayer: React.FC<NetflixPlayerProps> = ({
               if (data.fatal) {
                  console.error("FATAL HLS ERROR DETAILS:", { type: data.type, details: data.details, response: data.response });
                  if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-                   if (retryCountRef.current < 15) { 
+                   if (retryCountRef.current < 20) { 
                      retryCountRef.current++;
-                     setLoadingProgress(prev => Math.max(prev, 10));
-                     // Exponential backoff for retries: 500ms, 1000ms, 2000ms, max 5000ms
-                     const retryDelay = Math.min(500 * Math.pow(1.5, retryCountRef.current - 1), 5000);
+                     setLoadingProgress(prev => Math.max(prev, 15));
+                     const retryDelay = Math.min(1000 * Math.pow(1.2, retryCountRef.current - 1), 8000);
+                     
                      setTimeout(() => {
-                       // Reload source completely if manifest failed to load, else try to recover chunks
                        if (data.details === Hls.ErrorDetails.MANIFEST_LOAD_ERROR || 
                            data.details === Hls.ErrorDetails.MANIFEST_LOAD_TIMEOUT ||
                            data.response?.code === 403 || data.response?.code === 404) {
-                           hls.loadSource(videoToPlay);
+                           console.log("Reloading source with proxy:", videoToPlayRef.current);
+                           hls.loadSource(videoToPlayRef.current || videoToPlay);
                        } else {
                            hls.startLoad();
                        }
                      }, retryDelay);
                    } else {
-                     setError({ message: "O servidor de vídeo falhou. A conexão pode ter expirado ou o servidor está bloqueado. Tente o player nativo.", type: 'network' });
+                     setError({ 
+                       message: "Erro de conexão persistente. O servidor de vídeo pode estar instável. Tente atualizar a página ou use o player nativo.", 
+                       type: 'network' 
+                     });
                      setIsLoading(false);
                    }
                  }
@@ -709,8 +717,8 @@ const NetflixPlayer: React.FC<NetflixPlayerProps> = ({
                    hls.recoverMediaError();
                  }
                  else {
-                   // We ignore other fatal errors to allow auto-recovery without blocking the user
-                   console.error("Ignored fatal error for seamless playback attempt", data);
+                   hls.destroy();
+                   initPlayer(); // Full restart as last resort
                  }
               }
             });
