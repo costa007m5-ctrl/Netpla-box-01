@@ -589,9 +589,37 @@ async function startServer() {
     }
   });
 
+  // CORS preflight for HLS proxy
+  app.options('/api/hls-proxy', (req, res) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', '*');
+    res.setHeader('Access-Control-Max-Age', '86400');
+    res.status(204).end();
+  });
+
   app.get('/api/hls-proxy', async (req, res) => {
-    const targetUrl = req.query.url as string;
+    let targetUrl = req.query.url as string;
     if (!targetUrl) return res.status(400).send('URL is required');
+    
+    // Decode URL if it's encoded (handle double encoding)
+    try {
+      while (targetUrl.includes('%25')) {
+        targetUrl = decodeURIComponent(targetUrl);
+      }
+      if (targetUrl.includes('%3A') || targetUrl.includes('%2F')) {
+        targetUrl = decodeURIComponent(targetUrl);
+      }
+    } catch (e) {
+      // Ignore decoding errors
+    }
+    
+    // Clean trailing dots from URL
+    while (targetUrl.endsWith('.') && !targetUrl.endsWith('.m3u8')) {
+      targetUrl = targetUrl.slice(0, -1);
+    }
+    
+    console.log('[v0] HLS Proxy request for:', targetUrl.substring(0, 100) + '...');
 
     try {
       // Detect source type for proper headers
@@ -629,6 +657,8 @@ async function startServer() {
         proxyHeaders['Range'] = req.headers.range;
       }
 
+      console.log('[v0] Fetching:', isM3U8 ? 'M3U8' : isSegment ? 'Segment' : 'Other', 'from', targetUrl.substring(0, 80));
+      
       const response = await axios({
         method: 'GET',
         url: targetUrl,
@@ -639,6 +669,8 @@ async function startServer() {
         maxRedirects: 10,
       });
 
+      console.log('[v0] Response status:', response.status, 'Content-Type:', response.headers['content-type']);
+      
       // Get final URL after redirects
       const finalUrl = (response.request as any).res?.responseUrl || targetUrl;
 
