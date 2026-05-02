@@ -334,21 +334,38 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ movie, onClose, profileId, pr
   useEffect(() => {
     const runExtraction = async () => {
       const u = movie.videoUrl || '';
+      
+      // If it's already a fast_stream URL, use it directly
+      if (u.includes('workers.dev') && u.includes('fast_stream')) {
+        console.log("Direct fast_stream URL detected, using directly:", u);
+        setExtractedVideoUrl(u);
+        setFinalVideoUrl(u);
+        return;
+      }
+      
       const isTera = u.includes('terabox.com') || u.includes('teraboxapp.com') || u.includes('dubox.com') || u.includes('nephobox.com') || u.includes('1024terabox.com') || u.includes('freeterabox.com') || u.includes('4funbox.com') || u.includes('mirrobox.com') || u.includes('momerybox.com') || u.includes('teraboxlink.com') || u.includes('terafileshare.com');
       
       if (isTera) {
         setIsExtractingTerabox(true);
         try {
-          const res = await fetch(`/api/terabox-pro?url=${encodeURIComponent(u)}`);
+          const res = await fetch(`/api/terabox-pro?url=${encodeURIComponent(u)}&quality=1080p`);
           if (res.ok) {
             const data = await res.json();
             
             let vid = data.list && data.list.length > 0 ? data.list[0] : data;
             
             if (vid) {
-               const stUrl = vid.fast_stream_url?.['1080p'] || vid.fast_stream_url?.['720p'] || vid.fast_stream_url?.['480p'] || vid.fast_stream_url?.['360p'] || vid.normal_dlink || vid.url || vid.stream_url || vid.video_url || vid.src || (vid.data && vid.data.url) || vid.dlink;
+               // Prioritize recommended_url (fast_stream) for best playback
+               const stUrl = vid.recommended_url || 
+                             vid.fast_stream_url?.['1080p'] || 
+                             vid.fast_stream_url?.['720p'] || 
+                             vid.fast_stream_url?.['480p'] || 
+                             vid.fast_stream_url?.['360p'] || 
+                             vid.normal_dlink || vid.url || vid.stream_url || vid.video_url || 
+                             vid.src || (vid.data && vid.data.url) || vid.dlink;
                
                if (stUrl) {
+                  console.log("Extracted Terabox URL:", stUrl, "Quality:", vid.recommended_quality || 'unknown');
                   setExtractedVideoUrl(stUrl);
                   setFinalVideoUrl(stUrl);
                }
@@ -370,11 +387,15 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ movie, onClose, profileId, pr
   }, [movie.id, movie.videoUrl]);
 
   const isYouTube = url.includes('youtube.com') || url.includes('youtu.be');
-  const isHLS = url.includes('.m3u8') || (extractedVideoUrl?.includes('.m3u8') ?? false);
+  // Detect HLS streams - including Terabox fast_stream URLs
+  const isWorkersDevStream = url.includes('workers.dev') || (extractedVideoUrl?.includes('workers.dev') ?? false);
+  const isFastStream = url.includes('fast_stream') || (extractedVideoUrl?.includes('fast_stream') ?? false);
+  const isHLS = url.includes('.m3u8') || (extractedVideoUrl?.includes('.m3u8') ?? false) || isWorkersDevStream || isFastStream;
   const isMega = url.includes('mega.nz');
-  const isDirectVideo = isHLS || url.match(/\.(mp4|webm|ogg|mkv|mov|avi)$/i) !== null || (isDriveVideo && drivePlayMethod !== 'iframe') || (isKingX && extractedVideoUrl !== null);
+  const isDirectVideo = isHLS || url.match(/\.(mp4|webm|ogg|mkv|mov|avi)$/i) !== null || (isDriveVideo && drivePlayMethod !== 'iframe') || (isKingX && extractedVideoUrl !== null) || isWorkersDevStream || isFastStream;
   const isMP4 = isHLS || url.toLowerCase().includes('.mp4') || url.toLowerCase().includes('.mkv') || url.toLowerCase().includes('.avi') || (isDriveVideo && drivePlayMethod !== 'iframe') || (isKingX && extractedVideoUrl !== null);
-  const isEmbeddable = isYouTube || isMega || isTeraBox || isKingX || isGDPlayer || (isDriveVideo && drivePlayMethod === 'iframe');
+  const isEmbeddable = isYouTube || isMega || isGDPlayer || (isDriveVideo && drivePlayMethod === 'iframe');
+  // Note: Removed isTeraBox and isKingX from embeddable - we now handle these natively via HLS
 
   const getEmbedUrl = () => {
     if (isDriveVideo && drivePlayMethod === 'iframe') {
@@ -415,19 +436,24 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ movie, onClose, profileId, pr
     const isDrive = url.includes('drive.google.com');
     const isKingXUrl = url.includes('kingx.dev') || url.includes('teradl.kingx.dev');
     const isTera = url.includes('terabox') || url.includes('teradl') || url.includes('kingx');
+    const isWorkersStream = url.includes('workers.dev');
+    const isFastStreamUrl = url.includes('fast_stream');
+    const isM3U8Direct = url.toLowerCase().endsWith('.m3u8');
 
     if (isDrive) {
       setDrivePlayMethod('iframe');
-      setPlayerStyle('standard'); // Usar o fluxo padrão que renderiza o iframe no final
+      setPlayerStyle('standard');
       requestLandscape();
-    } else if (isKingXUrl) {
+    } else if (isWorkersStream || isFastStreamUrl || isM3U8Direct) {
+      // Direct HLS/Terabox fast_stream - always use Netflix player
+      console.log("Detected direct HLS/fast_stream URL, using Netflix player");
       setPlayerStyle('netflix');
       requestLandscape();
-    } else if (isTera) {
+    } else if (isKingXUrl || isTera) {
       setPlayerStyle('netflix');
       requestLandscape();
     } else {
-      // Outros links vão para o Netflix Player por padrão para melhor compatibilidade
+      // Default to Netflix Player for best compatibility
       setPlayerStyle('netflix');
       requestLandscape();
     }

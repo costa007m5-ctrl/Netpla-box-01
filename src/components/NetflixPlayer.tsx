@@ -83,19 +83,27 @@ const NetflixPlayer: React.FC<NetflixPlayerProps> = ({
     }
   }, [verificationUrl]);
   
-  // Robust Extraction of nested URLs (KingX, Terabox, etc.)
+  // Robust Extraction of nested URLs (KingX, Terabox, workers.dev, etc.)
   const parsedUrls = useMemo(() => {
     let vToPlay = src;
     let sToPlay = subtitleUrl;
     
     try {
-      // KingX links have Captcha protection, so they must be played via native iframe
       let cleanSrc = src?.trim();
       if (cleanSrc && cleanSrc.endsWith('.')) {
         cleanSrc = cleanSrc.slice(0, -1);
       }
       
-      if (cleanSrc && !cleanSrc.includes('kingx.dev')) {
+      // Detect if it's a direct Terabox fast_stream URL (workers.dev)
+      const isTeraboxFastStream = cleanSrc?.includes('workers.dev') && cleanSrc?.includes('fast_stream');
+      const isDirectM3U8 = cleanSrc?.toLowerCase().endsWith('.m3u8');
+      
+      // If it's already a direct fast_stream or m3u8 URL, use it directly
+      if (isTeraboxFastStream || isDirectM3U8) {
+        vToPlay = cleanSrc;
+        console.log('Direct Terabox/M3U8 URL detected:', vToPlay);
+      } else if (cleanSrc && !cleanSrc.includes('kingx.dev')) {
+        // Try to extract nested video_url parameter
         if (cleanSrc.includes('video_url=')) {
           const urlObj = new URL(cleanSrc, window.location.origin);
           
@@ -108,7 +116,6 @@ const NetflixPlayer: React.FC<NetflixPlayerProps> = ({
                hashStr = hashStr.substring(hashStr.indexOf('?') + 1);
              }
              
-             // First, globally replace URL-encoded ampersands so regex can split them
              const normalizedHashStr = hashStr.replace(/%26/g, '&').replace(/&amp;/g, '&');
              
              const vMatch = normalizedHashStr.match(/video_url=([^&]+(?:&[^&]+)*?)(?:&subtitle_url=|$)/i);
@@ -615,9 +622,15 @@ const NetflixPlayer: React.FC<NetflixPlayerProps> = ({
         
         if (lowerSrc.includes('.m3u8')) {
           let videoToPlayProxied = videoToPlay;
-          if (lowerSrc.includes('workers.dev')) {
+          
+          // Detect if it's a Terabox workers.dev stream - always use proxy for CORS
+          const isWorkersDevStream = lowerSrc.includes('workers.dev');
+          const isTeraApiStream = lowerSrc.includes('tera-api') || lowerSrc.includes('iteraplay');
+          const isFastStream = lowerSrc.includes('fast_stream');
+          
+          if (isWorkersDevStream || isTeraApiStream || isFastStream) {
             videoToPlayProxied = `/api/hls-proxy?url=${encodeURIComponent(videoToPlay)}`;
-            console.log("Forcing HLS Proxy for workers.dev:", videoToPlayProxied);
+            console.log("Forcing HLS Proxy for Terabox stream:", videoToPlayProxied);
           }
           
           const canPlayNative = video.canPlayType('application/vnd.apple.mpegurl') !== '';
@@ -625,28 +638,60 @@ const NetflixPlayer: React.FC<NetflixPlayerProps> = ({
           
           if (Hls.isSupported() && !isIOS) {
             console.log("Initializing HLS.js for:", videoToPlayProxied);
+            
+            // Optimized HLS configuration for Terabox fast_stream
             const hls = new Hls({
+              // Worker and performance
               enableWorker: true,
-              lowLatencyMode: true,
-              backBufferLength: 90,
+              lowLatencyMode: false, // Disable for VOD stability
+              
+              // Buffer optimization for fast start
+              backBufferLength: 30, // Reduced for faster memory cleanup
               startFragPrefetch: true,
               capLevelToPlayerSize: true,
               autoStartLoad: true,
-              startLevel: -1,
+              startLevel: -1, // Auto-select best quality
               startPosition: startPoint > 0 ? startPoint : -1,
-              maxBufferLength: 60,
-              maxMaxBufferLength: 600,
+              
+              // Aggressive buffering for smooth playback
+              maxBufferLength: 30, // 30 seconds ahead
+              maxMaxBufferLength: 120, // Max 2 minutes
+              maxBufferSize: 60 * 1000 * 1000, // 60MB max buffer
               maxBufferHole: 0.5,
-              maxStarvationDelay: 4,
-              maxLoadingDelay: 4,
-              manifestLoadingMaxRetry: 25,
-              levelLoadingMaxRetry: 25,
-              fragLoadingMaxRetry: 25,
-              manifestLoadingRetryDelay: 1000,
-              levelLoadingRetryDelay: 1000,
-              fragLoadingRetryDelay: 1000,
+              
+              // Fast loading timeouts
+              maxStarvationDelay: 2, // Faster recovery
+              maxLoadingDelay: 2,
+              
+              // Aggressive retry for Terabox streams
+              manifestLoadingMaxRetry: 30,
+              levelLoadingMaxRetry: 30,
+              fragLoadingMaxRetry: 30,
+              manifestLoadingRetryDelay: 500, // Faster retry
+              levelLoadingRetryDelay: 500,
+              fragLoadingRetryDelay: 500,
+              manifestLoadingMaxRetryTimeout: 30000,
+              levelLoadingMaxRetryTimeout: 30000,
+              fragLoadingMaxRetryTimeout: 30000,
+              
+              // Adaptive bitrate settings
+              abrEwmaDefaultEstimate: 5000000, // Start assuming 5Mbps
+              abrEwmaFastLive: 3.0,
+              abrEwmaSlowLive: 9.0,
+              abrEwmaFastVoD: 3.0,
+              abrEwmaSlowVoD: 9.0,
+              abrBandWidthFactor: 0.95,
+              abrBandWidthUpFactor: 0.7,
+              
+              // Segment loading optimization
+              highBufferWatchdogPeriod: 2,
+              nudgeOffset: 0.1,
+              nudgeMaxRetry: 5,
+              
               xhrSetup: (xhr, url) => {
-                xhr.withCredentials = false; // Important for some proxies
+                xhr.withCredentials = false;
+                // Add timeout for faster failure detection
+                xhr.timeout = 20000;
               }
             });
             hls.attachMedia(video);
@@ -687,46 +732,78 @@ const NetflixPlayer: React.FC<NetflixPlayerProps> = ({
 
             hls.on(Hls.Events.ERROR, (event, data) => {
               console.warn("HLS Error:", data);
-              if (data.fatal) {
-                 console.error("FATAL HLS ERROR DETAILS:", { type: data.type, details: data.details, response: data.response });
-                 if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-                   if (retryCountRef.current < 20) { 
-                     retryCountRef.current++;
-                     setLoadingProgress(prev => Math.max(prev, 15));
-                     const retryDelay = Math.min(1000 * Math.pow(1.2, retryCountRef.current - 1), 8000);
-                     
-                     setTimeout(() => {
-                       if (data.details === Hls.ErrorDetails.MANIFEST_LOAD_ERROR || 
-                           data.details === Hls.ErrorDetails.MANIFEST_LOAD_TIMEOUT ||
-                           data.response?.code === 403 || data.response?.code === 404) {
-                           console.log("Reloading source with proxy:", videoToPlayRef.current);
-                           hls.loadSource(videoToPlayRef.current || videoToPlay);
-                       } else {
-                           hls.startLoad();
-                       }
-                     }, retryDelay);
-                   } else {
-                     setError({ 
-                       message: "Erro de conexão persistente. O servidor de vídeo pode estar instável. Tente atualizar a página ou use o player nativo.", 
-                       type: 'network' 
-                     });
-                     setIsLoading(false);
-                   }
-                 }
-                 else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
-                   hls.recoverMediaError();
-                 }
-                 else {
-                   hls.destroy();
-                   initPlayer(); // Full restart as last resort
-                 }
+              
+              // Non-fatal errors - just log them
+              if (!data.fatal) {
+                // For buffer stalls, try to recover
+                if (data.details === Hls.ErrorDetails.BUFFER_STALLED_ERROR) {
+                  console.log("Buffer stall detected, attempting recovery...");
+                  if (video && !video.paused) {
+                    video.currentTime = video.currentTime + 0.1;
+                  }
+                }
+                return;
+              }
+              
+              console.error("FATAL HLS ERROR:", { type: data.type, details: data.details, response: data.response });
+              
+              if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+                // More aggressive retry for Terabox streams
+                if (retryCountRef.current < 35) { 
+                  retryCountRef.current++;
+                  setLoadingProgress(prev => Math.max(prev, 15));
+                  
+                  // Faster exponential backoff
+                  const retryDelay = Math.min(300 * Math.pow(1.15, retryCountRef.current - 1), 5000);
+                  console.log(`Retry ${retryCountRef.current}/35 in ${retryDelay}ms...`);
+                  
+                  setTimeout(() => {
+                    if (data.details === Hls.ErrorDetails.MANIFEST_LOAD_ERROR || 
+                        data.details === Hls.ErrorDetails.MANIFEST_LOAD_TIMEOUT ||
+                        data.details === Hls.ErrorDetails.MANIFEST_PARSING_ERROR ||
+                        data.response?.code === 403 || data.response?.code === 404 ||
+                        data.response?.code === 503) {
+                        // Full reload for manifest errors
+                        console.log("Reloading source:", videoToPlayRef.current);
+                        hls.loadSource(videoToPlayRef.current || videoToPlay);
+                    } else if (data.details === Hls.ErrorDetails.FRAG_LOAD_ERROR ||
+                               data.details === Hls.ErrorDetails.FRAG_LOAD_TIMEOUT) {
+                        // For fragment errors, try continuing from current position
+                        console.log("Fragment error, starting load from current position...");
+                        hls.startLoad(video?.currentTime || -1);
+                    } else {
+                        hls.startLoad();
+                    }
+                  }, retryDelay);
+                } else {
+                  setError({ 
+                    message: "O servidor do vídeo está demorando para responder. Toque em 'Reparar' para tentar novamente.", 
+                    type: 'network' 
+                  });
+                  setIsLoading(false);
+                  setShowStuckButton(true);
+                }
+              }
+              else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+                console.log("Media error, attempting recovery...");
+                hls.recoverMediaError();
+              }
+              else {
+                // Other fatal errors - full restart
+                console.log("Unknown fatal error, restarting player...");
+                hls.destroy();
+                initPlayer();
               }
             });
             hlsRef.current = hls;
           } else if (canPlayNative) {
+            // iOS/Safari native HLS support - also needs proxy for CORS
+            console.log("Using native HLS support (iOS/Safari) for:", videoToPlayProxied);
             video.src = videoToPlayProxied;
+            video.preload = 'auto';
             video.load();
             video.addEventListener('loadedmetadata', () => {
+              console.log("Native HLS: metadata loaded, duration:", video.duration);
               let safeStartPoint = startPoint;
               if (safeStartPoint > 0) {
                 const duration = video.duration || 0;
