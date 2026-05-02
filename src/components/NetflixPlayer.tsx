@@ -90,18 +90,28 @@ const NetflixPlayer: React.FC<NetflixPlayerProps> = ({
     
     try {
       let cleanSrc = src?.trim();
-      if (cleanSrc && cleanSrc.endsWith('.')) {
+      
+      // Remove trailing dots (common issue with copied URLs)
+      while (cleanSrc && cleanSrc.endsWith('.')) {
         cleanSrc = cleanSrc.slice(0, -1);
       }
+      
+      // Remove any trailing whitespace after cleanup
+      cleanSrc = cleanSrc?.trim();
+      
+      console.log('[v0] Original src:', src);
+      console.log('[v0] Cleaned src:', cleanSrc);
       
       // Detect if it's a direct Terabox fast_stream URL (workers.dev)
       const isTeraboxFastStream = cleanSrc?.includes('workers.dev') && cleanSrc?.includes('fast_stream');
       const isDirectM3U8 = cleanSrc?.toLowerCase().endsWith('.m3u8');
       
+      console.log('[v0] isTeraboxFastStream:', isTeraboxFastStream, 'isDirectM3U8:', isDirectM3U8);
+      
       // If it's already a direct fast_stream or m3u8 URL, use it directly
       if (isTeraboxFastStream || isDirectM3U8) {
         vToPlay = cleanSrc;
-        console.log('Direct Terabox/M3U8 URL detected:', vToPlay);
+        console.log('[v0] Direct Terabox/M3U8 URL detected:', vToPlay);
       } else if (cleanSrc && !cleanSrc.includes('kingx.dev')) {
         // Try to extract nested video_url parameter
         if (cleanSrc.includes('video_url=')) {
@@ -639,6 +649,7 @@ const NetflixPlayer: React.FC<NetflixPlayerProps> = ({
           if (Hls.isSupported() && !isIOS) {
             console.log("Initializing HLS.js for:", videoToPlayProxied);
             
+            console.log('[v0] Initializing HLS.js with optimized config');
             // Optimized HLS configuration for Terabox fast_stream
             const hls = new Hls({
               // Worker and performance
@@ -649,7 +660,7 @@ const NetflixPlayer: React.FC<NetflixPlayerProps> = ({
               backBufferLength: 30, // Reduced for faster memory cleanup
               startFragPrefetch: true,
               capLevelToPlayerSize: true,
-              autoStartLoad: true,
+              autoStartLoad: false, // We call loadSource manually after media attached
               startLevel: -1, // Auto-select best quality
               startPosition: startPoint > 0 ? startPoint : -1,
               
@@ -696,37 +707,68 @@ const NetflixPlayer: React.FC<NetflixPlayerProps> = ({
             });
             hls.attachMedia(video);
             hls.on(Hls.Events.MEDIA_ATTACHED, () => {
+              console.log('[v0] HLS Media Attached');
               mediaAttachedRef.current = true;
               videoToPlayRef.current = videoToPlayProxied;
-              attemptStartHlsLoad();
               setLoadingProgress(35);
+              
+              // Always load source immediately for fast_stream URLs
+              // The autoStartLoad config handles automatic loading, but we explicitly call loadSource
+              // to ensure the correct proxied URL is used
+              console.log('[v0] Loading HLS source:', videoToPlayProxied);
+              hls.loadSource(videoToPlayProxied);
+              startedHlsRef.current = true;
               
               if (verificationUrl) {
                 setTimeout(() => {
                   if (!startedHlsRef.current) {
-                    console.log("Verification timeout fallback triggered");
+                    console.log("[v0] Verification timeout fallback triggered");
                     iframeLoadedRef.current = true;
                     attemptStartHlsLoad();
                   }
                 }, 3000);
               }
             });
+            hls.on(Hls.Events.MANIFEST_LOADING, () => {
+              console.log('[v0] HLS Manifest Loading...');
+              setLoadingProgress(40);
+            });
+            
+            hls.on(Hls.Events.MANIFEST_LOADED, (event, data) => {
+              console.log('[v0] HLS Manifest Loaded, URL:', data.url?.substring(0, 50));
+              setLoadingProgress(50);
+            });
+            
             hls.on(Hls.Events.MANIFEST_PARSED, (event, data) => {
-              console.log("HLS Manifest Parsed, levels:", data.levels.length);
+              console.log("[v0] HLS Manifest Parsed, levels:", data.levels.length);
               let parsedLevels = data.levels.map((l, i) => ({ id: i, height: l.height, bitrate: l.bitrate })).sort((a, b) => b.height - a.height);
               setQualityLevels(parsedLevels);
               setLoadingProgress(60);
               
+              // Start loading fragments now that manifest is ready
+              hls.startLoad();
+              
               if (video) {
                  video.play().catch(e => { 
-                   console.warn("Autoplay block", e); 
+                   console.warn("[v0] Autoplay block", e); 
                    setAutoplayBlocked(true); 
                    setShowControls(true); 
                    setIsPlaying(false); 
                  });
               }
             });
-            hls.on(Hls.Events.FRAG_BUFFERED, () => {
+            
+            hls.on(Hls.Events.LEVEL_LOADED, (event, data) => {
+              console.log('[v0] HLS Level Loaded, duration:', data.details.totalduration);
+              setLoadingProgress(70);
+            });
+            
+            hls.on(Hls.Events.FRAG_LOADING, (event, data) => {
+              console.log('[v0] HLS Fragment Loading:', data.frag.sn);
+            });
+            
+            hls.on(Hls.Events.FRAG_BUFFERED, (event, data) => {
+              console.log('[v0] HLS Fragment Buffered:', data.frag.sn);
               setLoadingProgress(prev => Math.min(prev + 5, 99));
             });
 
