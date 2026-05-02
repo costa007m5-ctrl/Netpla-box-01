@@ -141,19 +141,62 @@ async function startServer() {
   });
 
   app.get('/api/terabox-pro', async (req, res) => {
-    const { url } = req.query;
+    const { url, quality } = req.query;
     if (!url) return res.status(400).json({ error: 'URL required' });
 
     const apiKey = process.env.TERABOX_PRO_API_KEY || 'sk_6d7363a619840df0a07afe194613bf9a';
+    const preferredQuality = (quality as string) || '1080p';
 
     try {
       const response = await axios.get(`https://xapiverse.com/api/terabox-pro?url=${encodeURIComponent(url as string)}`, {
         headers: {
            'Content-Type': 'application/json',
            'xAPIverse-Key': apiKey
-        }
+        },
+        timeout: 30000
       });
-      return res.json(response.data);
+      
+      const data = response.data;
+      
+      // Process response to prioritize fast_stream URLs (m3u8)
+      if (data.list && Array.isArray(data.list)) {
+        data.list = data.list.map((item: any) => {
+          // Add a recommended_url field with the best fast_stream option
+          if (item.fast_stream_url) {
+            const qualityOrder = ['1080p', '720p', '480p', '360p'];
+            const startIdx = qualityOrder.indexOf(preferredQuality);
+            const orderedQualities = startIdx >= 0 
+              ? [...qualityOrder.slice(startIdx), ...qualityOrder.slice(0, startIdx)]
+              : qualityOrder;
+            
+            for (const q of orderedQualities) {
+              if (item.fast_stream_url[q]) {
+                item.recommended_url = item.fast_stream_url[q];
+                item.recommended_quality = q;
+                break;
+              }
+            }
+          }
+          return item;
+        });
+      } else if (data.fast_stream_url) {
+        // Single item response
+        const qualityOrder = ['1080p', '720p', '480p', '360p'];
+        const startIdx = qualityOrder.indexOf(preferredQuality);
+        const orderedQualities = startIdx >= 0 
+          ? [...qualityOrder.slice(startIdx), ...qualityOrder.slice(0, startIdx)]
+          : qualityOrder;
+        
+        for (const q of orderedQualities) {
+          if (data.fast_stream_url[q]) {
+            data.recommended_url = data.fast_stream_url[q];
+            data.recommended_quality = q;
+            break;
+          }
+        }
+      }
+      
+      return res.json(data);
     } catch (error: any) {
       console.error('Terabox backend error:', error?.response?.data || error.message);
       
@@ -551,61 +594,142 @@ async function startServer() {
     if (!targetUrl) return res.status(400).send('URL is required');
 
     try {
-      // Forward the request to the target URL
-      const response = await axios({
-        method: req.method,
-        url: targetUrl,
-        responseType: 'stream',
-        headers: {
-          ...req.headers,
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Referer': 'https://player.kingx.dev/',
-          'Origin': 'https://player.kingx.dev',
-          host: new URL(targetUrl).host,
-        },
-        validateStatus: () => true, // Don't throw on error status codes
-      });
-
-      // Transfer headers
-      for (const [key, value] of Object.entries(response.headers)) {
-        if (!['transfer-encoding', 'content-encoding', 'content-length'].includes(key.toLowerCase())) {
-           res.setHeader(key, value as any);
-        }
+      // Detect source type for proper headers
+      const isFromWorker = targetUrl.includes('workers.dev');
+      const isTeraApi = targetUrl.includes('tera-api') || targetUrl.includes('iteraplay');
+      const isFastStream = targetUrl.includes('fast_stream');
+      const isM3U8 = targetUrl.includes('.m3u8') || targetUrl.includes('.isml');
+      const isSegment = targetUrl.includes('.ts') || targetUrl.includes('.m4s');
+      
+      // Build optimized headers for Terabox streams
+      const proxyHeaders: Record<string, string> = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+        'Accept': '*/*',
+        'Accept-Language': 'en-US,en;q=0.9,pt-BR;q=0.8,pt;q=0.7',
+        'Connection': 'keep-alive',
+        'Sec-Fetch-Dest': 'video',
+        'Sec-Fetch-Mode': 'cors',
+        'Sec-Fetch-Site': 'cross-site',
+      };
+      
+      // Set appropriate Referer/Origin based on source
+      if (isFromWorker || isTeraApi || isFastStream) {
+        proxyHeaders['Referer'] = 'https://www.terabox.com/';
+        proxyHeaders['Origin'] = 'https://www.terabox.com';
+        proxyHeaders['Sec-Ch-Ua'] = '"Google Chrome";v="125", "Chromium";v="125", "Not.A/Brand";v="24"';
+        proxyHeaders['Sec-Ch-Ua-Mobile'] = '?0';
+        proxyHeaders['Sec-Ch-Ua-Platform'] = '"Windows"';
+      } else {
+        proxyHeaders['Referer'] = 'https://player.kingx.dev/';
+        proxyHeaders['Origin'] = 'https://player.kingx.dev';
+      }
+      
+      // Forward Range header for video segments
+      if (req.headers.range) {
+        proxyHeaders['Range'] = req.headers.range;
       }
 
-      // Allow CORS
+      const response = await axios({
+        method: 'GET',
+        url: targetUrl,
+        responseType: 'stream',
+        headers: proxyHeaders,
+        timeout: isSegment ? 60000 : 30000, // Longer timeout for segments
+        validateStatus: () => true,
+        maxRedirects: 10,
+      });
+
+      // Get final URL after redirects
+      const finalUrl = (response.request as any).res?.responseUrl || targetUrl;
+
+      // Set CORS headers
       res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', '*');
+      res.setHeader('Access-Control-Expose-Headers', '*');
+      
+      // Set appropriate content type
+      const contentType = (response.headers['content-type'] || '').toLowerCase();
+      const isActuallyM3U8 = isM3U8 || contentType.includes('mpegurl') || contentType.includes('application/x-mpegurl');
+      
+      if (isActuallyM3U8) {
+        res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
+      } else if (isSegment || contentType.includes('video/mp2t')) {
+        res.setHeader('Content-Type', 'video/mp2t');
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      }
+      
+      // Copy relevant headers
+      const headersToCopy = ['content-length', 'content-range', 'accept-ranges', 'cache-control'];
+      headersToCopy.forEach(h => { 
+        if (response.headers[h]) res.setHeader(h, response.headers[h]); 
+      });
+
       res.status(response.status);
 
-      // We need to rewrite the M3U8 payload if it's a playlist so the chunks also go through our proxy
-      // since the chunks might also check the Referer!
-      if (targetUrl.includes('.m3u8') || response.headers['content-type']?.includes('mpegurl')) {
+      // Rewrite M3U8 playlist URLs to go through our proxy
+      if (isActuallyM3U8) {
         let m3u8Data = '';
-        response.data.on('data', (chunk: Buffer) => {
-            m3u8Data += chunk.toString();
-        });
+        response.data.on('data', (chunk: Buffer) => { m3u8Data += chunk.toString(); });
         response.data.on('end', () => {
-             // Rewrite lines
-             const lines = m3u8Data.split('\n');
-             const rewrittenLines = lines.map(line => {
-                if (line.trim() && !line.startsWith('#')) {
-                    // It's a URI!
-                    let absoluteUri = line.trim();
-                    if (!absoluteUri.startsWith('http')) {
-                         const baseUrl = new URL(targetUrl);
-                         absoluteUri = new URL(absoluteUri, baseUrl).toString();
+          const lines = m3u8Data.split('\n');
+          const rewrittenLines = lines.map(line => {
+            const trimmedLine = line.trim();
+            
+            // Rewrite segment/playlist URLs
+            if (trimmedLine && !trimmedLine.startsWith('#')) {
+              let absoluteUri = trimmedLine;
+              if (!absoluteUri.startsWith('http')) {
+                try {
+                  const baseUrl = finalUrl.split('?')[0];
+                  absoluteUri = new URL(absoluteUri, baseUrl).toString();
+                  // Preserve query params from original URL (tokens, etc.)
+                  if (finalUrl.includes('?')) {
+                    const originalParams = finalUrl.split('?')[1];
+                    if (!absoluteUri.includes('?')) {
+                      absoluteUri += '?' + originalParams;
                     }
-                    // Replace with proxy
-                    return `/api/hls-proxy?url=${encodeURIComponent(absoluteUri)}`;
+                  }
+                } catch(e) { return line; }
+              }
+              // Don't double-proxy
+              if (!absoluteUri.includes('/api/hls-proxy')) {
+                return `/api/hls-proxy?url=${encodeURIComponent(absoluteUri)}`;
+              }
+            }
+            
+            // Rewrite URI attributes in tags (like encryption keys)
+            if (line.includes('URI="')) {
+              return line.replace(/URI="([^"]+)"/, (match, p1) => {
+                let uri = p1;
+                if (!uri.startsWith('http')) {
+                  try {
+                    uri = new URL(uri, finalUrl).toString();
+                  } catch(e) {}
                 }
-                return line;
-             });
-             const rewrittenData = rewrittenLines.join('\n');
-             res.send(rewrittenData);
+                return `URI="/api/hls-proxy?url=${encodeURIComponent(uri)}"`;
+              });
+            }
+            
+            return line;
+          });
+          
+          res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
+          res.send(rewrittenLines.join('\n'));
+        });
+        
+        response.data.on('error', (err: Error) => {
+          console.error('M3U8 stream error:', err.message);
+          if (!res.headersSent) res.status(500).send('Stream error');
         });
       } else {
-        // It's a binary chunk (.ts) or something else, pipe it directly
+        // Pipe binary data directly (segments)
         response.data.pipe(res);
+        
+        response.data.on('error', (err: Error) => {
+          console.error('Segment stream error:', err.message);
+          res.end();
+        });
       }
 
     } catch (e: any) {

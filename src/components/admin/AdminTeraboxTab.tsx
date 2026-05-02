@@ -38,7 +38,7 @@ export default function AdminTeraboxTab({ movies, onUpdateMovie, onAddMovie }: {
     setTestResult(null);
 
     try {
-      const res = await fetch(`/api/terabox-pro?url=${encodeURIComponent(testUrl)}`);
+      const res = await fetch(`/api/terabox-pro?url=${encodeURIComponent(testUrl)}&quality=1080p`);
       const data = await res.json();
       if (!res.ok) throw new Error(`${data.error}: ${data.details || ''}`);
       setTestResult(data);
@@ -52,9 +52,18 @@ export default function AdminTeraboxTab({ movies, onUpdateMovie, onAddMovie }: {
   const videoUrlToPlay = React.useMemo(() => {
     if (!testResult) return null;
     let vid = testResult.list && testResult.list.length > 0 ? testResult.list[0] : testResult;
-    let url = vid.fast_stream_url?.['1080p'] || vid.fast_stream_url?.['720p'] || vid.fast_stream_url?.['480p'] || vid.fast_stream_url?.['360p'] || vid.normal_dlink || vid.stream_url || vid.url || vid.video_url || vid.src || (vid.data && vid.data.url) || vid.dlink;
     
-    if (url && (url.includes('workers.dev') || url.includes('.m3u8'))) {
+    // Prioritize recommended_url (fast_stream m3u8) for best playback
+    let url = vid.recommended_url || 
+              vid.fast_stream_url?.['1080p'] || 
+              vid.fast_stream_url?.['720p'] || 
+              vid.fast_stream_url?.['480p'] || 
+              vid.fast_stream_url?.['360p'] || 
+              vid.normal_dlink || vid.stream_url || vid.url || vid.video_url || 
+              vid.src || (vid.data && vid.data.url) || vid.dlink;
+    
+    // Always proxy workers.dev and m3u8 streams for CORS
+    if (url && (url.includes('workers.dev') || url.includes('.m3u8') || url.includes('fast_stream'))) {
       return `/api/hls-proxy?url=${encodeURIComponent(url)}`;
     }
     return url;
@@ -92,7 +101,7 @@ export default function AdminTeraboxTab({ movies, onUpdateMovie, onAddMovie }: {
     setFolderResults([]);
     
     try {
-      const res = await fetch(`/api/terabox-pro?url=${encodeURIComponent(folderUrl)}`);
+      const res = await fetch(`/api/terabox-pro?url=${encodeURIComponent(folderUrl)}&quality=1080p`);
       const data = await res.json();
       if (!res.ok) throw new Error(`${data.error}: ${data.details || ''}`);
       
@@ -106,7 +115,13 @@ export default function AdminTeraboxTab({ movies, onUpdateMovie, onAddMovie }: {
       const mapped = [];
       for (const item of list) {
         const filename = item.filename || item.name || 'Desconhecido';
-        const urlToSave = item.fast_stream_url?.['1080p'] || item.fast_stream_url?.['720p'] || item.fast_stream_url?.['480p'] || item.fast_stream_url?.['360p'] || item.normal_dlink || item.url || item.dlink || item.stream_url || folderUrl;
+        // Prioritize recommended_url (fast_stream m3u8) for best playback
+        const urlToSave = item.recommended_url || 
+                          item.fast_stream_url?.['1080p'] || 
+                          item.fast_stream_url?.['720p'] || 
+                          item.fast_stream_url?.['480p'] || 
+                          item.fast_stream_url?.['360p'] || 
+                          item.normal_dlink || item.url || item.dlink || item.stream_url || folderUrl;
 
         // Improve TMDB matching by removing years, qualities, and extensions
         let searchName = filename.replace(/\.(mp4|mkv|avi|webm|ts)$/i, '');
@@ -240,11 +255,17 @@ export default function AdminTeraboxTab({ movies, onUpdateMovie, onAddMovie }: {
   });
 
   const getDirectLinkFromApi = async (url: string) => {
-    const res = await fetch(`/api/terabox-pro?url=${encodeURIComponent(url)}`);
+    const res = await fetch(`/api/terabox-pro?url=${encodeURIComponent(url)}&quality=1080p`);
     const data = await res.json();
     if (!res.ok) throw new Error(`${data.error}: ${data.details || ''}`);
     let vid = data.list && data.list.length > 0 ? data.list[0] : data;
-    return vid.fast_stream_url?.['1080p'] || vid.fast_stream_url?.['720p'] || vid.fast_stream_url?.['480p'] || vid.fast_stream_url?.['360p'] || vid.normal_dlink || vid.url || vid.stream_url || vid.dlink || url;
+    // Prioritize recommended_url (fast_stream m3u8) for best playback
+    return vid.recommended_url || 
+           vid.fast_stream_url?.['1080p'] || 
+           vid.fast_stream_url?.['720p'] || 
+           vid.fast_stream_url?.['480p'] || 
+           vid.fast_stream_url?.['360p'] || 
+           vid.normal_dlink || vid.url || vid.stream_url || vid.dlink || url;
   };
 
   const processUpdateSingle = async (movie: Movie) => {
