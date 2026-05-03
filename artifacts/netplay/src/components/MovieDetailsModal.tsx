@@ -234,7 +234,6 @@ const MovieDetailsModal = React.memo(({
 
   useEffect(() => {
     // Reset states when movie changes
-    setShowVideo(false);
     setActiveInfoTab('details');
     setCurrentProvider(getProvider(movie));
     
