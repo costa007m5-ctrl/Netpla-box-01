@@ -198,8 +198,8 @@ router.post("/referrals/redeem", async (req, res) => {
 
     const { error } = await supabaseAdmin.from("referral_requests").insert({
       user_id: userId,
-      email: user.email,
-      whatsapp: user.user_metadata?.whatsapp || "",
+      email: user?.email ?? "",
+      whatsapp: user?.user_metadata?.whatsapp || "",
       referral_count: count,
       credits,
       free_months: freeMonths,
@@ -260,10 +260,10 @@ router.post("/admin/updatesettings", requireAdminJwt, async (req, res) => {
   }
 });
 
-router.post("/payments/create-preference", async (req, res) => {
+router.post("/payments/create-preference", async (req, res): Promise<void> => {
   const { title, price, planId, userId, email } = req.body;
   const mpToken = (process.env.MERCADO_PAGO_ACCESS_TOKEN || process.env.MERCADOPAGO_ACCESS_TOKEN || "").replace(/['"]/g, "").trim();
-  if (!mpToken) return res.status(500).json({ error: "MERCADO_PAGO_ACCESS_TOKEN não configurado." });
+  if (!mpToken) { res.status(500).json({ error: "MERCADO_PAGO_ACCESS_TOKEN não configurado." }); return; }
 
   try {
     const client = new MercadoPagoConfig({ accessToken: mpToken });
@@ -292,10 +292,10 @@ router.post("/payments/create-preference", async (req, res) => {
   }
 });
 
-router.post("/payments/create-payment", async (req, res) => {
+router.post("/payments/create-payment", async (req, res): Promise<void> => {
   const { title, price, planId, userId, email, method, payer, token, installments, payment_method_id, issuer_id } = req.body;
   const mpToken = (process.env.MERCADO_PAGO_ACCESS_TOKEN || process.env.MERCADOPAGO_ACCESS_TOKEN || "").replace(/['"]/g, "").trim();
-  if (!mpToken) return res.status(500).json({ error: "MERCADO_PAGO_ACCESS_TOKEN não configurado." });
+  if (!mpToken) { res.status(500).json({ error: "MERCADO_PAGO_ACCESS_TOKEN não configurado." }); return; }
 
   try {
     const client = new MercadoPagoConfig({ accessToken: mpToken });
@@ -324,14 +324,14 @@ router.post("/payments/create-payment", async (req, res) => {
   }
 });
 
-router.post("/payments/webhook", async (req, res) => {
+router.post("/payments/webhook", async (req, res): Promise<void> => {
   const paymentId = req.query.id || req.body?.data?.id;
   const type = req.query.topic || req.body?.type;
 
   if (type === "payment" && paymentId) {
     try {
       const mpToken = (process.env.MERCADO_PAGO_ACCESS_TOKEN || process.env.MERCADOPAGO_ACCESS_TOKEN || "").replace(/['"]/g, "").trim();
-      if (!mpToken) return res.status(200).send("Webhook ignored: no token");
+      if (!mpToken) { res.status(200).send("Webhook ignored: no token"); return; }
 
       const response = await axios.get(`https://api.mercadopago.com/v1/payments/${paymentId}`, {
         headers: { Authorization: `Bearer ${mpToken}` },
@@ -358,9 +358,9 @@ router.post("/payments/webhook", async (req, res) => {
   res.status(200).send("OK");
 });
 
-router.post("/webhooks/supabase/onesignal", requireWebhookSecret, async (req, res) => {
+router.post("/webhooks/supabase/onesignal", requireWebhookSecret, async (req, res): Promise<void> => {
   const { type, table, record } = req.body;
-  if (type !== "INSERT" || (table !== "movies" && table !== "series")) return res.status(200).send("Ignored");
+  if (type !== "INSERT" || (table !== "movies" && table !== "series")) { res.status(200).send("Ignored"); return; }
 
   const title = record.title || record.name;
   const message = "Venha conferir o novo título que acabou de chegar.";
@@ -371,8 +371,8 @@ router.post("/webhooks/supabase/onesignal", requireWebhookSecret, async (req, re
   const appId = process.env.VITE_ONESIGNAL_APP_ID;
   const restApiKey = process.env.ONESIGNAL_REST_API_KEY;
 
-  if (!restApiKey) return res.status(500).json({ error: "ONESIGNAL_REST_API_KEY não configurada." });
-  if (!appId) return res.status(500).json({ error: "VITE_ONESIGNAL_APP_ID não configurada." });
+  if (!restApiKey) { res.status(500).json({ error: "ONESIGNAL_REST_API_KEY não configurada." }); return; }
+  if (!appId) { res.status(500).json({ error: "VITE_ONESIGNAL_APP_ID não configurada." }); return; }
 
   try {
     await axios.post("https://onesignal.com/api/v1/notifications", {
@@ -391,12 +391,12 @@ router.post("/webhooks/supabase/onesignal", requireWebhookSecret, async (req, re
   }
 });
 
-router.post("/notifications/send", requireAdminJwt, async (req, res) => {
+router.post("/notifications/send", requireAdminJwt, async (req, res): Promise<void> => {
   const { title, message, imageUrl, data } = req.body;
   const appId = process.env.VITE_ONESIGNAL_APP_ID;
   const restApiKey = process.env.ONESIGNAL_REST_API_KEY;
-  if (!restApiKey) return res.status(500).json({ error: "ONESIGNAL_REST_API_KEY não configurada." });
-  if (!appId) return res.status(500).json({ error: "VITE_ONESIGNAL_APP_ID não configurada." });
+  if (!restApiKey) { res.status(500).json({ error: "ONESIGNAL_REST_API_KEY não configurada." }); return; }
+  if (!appId) { res.status(500).json({ error: "VITE_ONESIGNAL_APP_ID não configurada." }); return; }
 
   try {
     const response = await axios.post("https://onesignal.com/api/v1/notifications", {
@@ -424,9 +424,9 @@ router.options("/hls-proxy", (req, res) => {
   res.status(204).end();
 });
 
-router.get("/hls-proxy", async (req, res) => {
+router.get("/hls-proxy", async (req, res): Promise<void> => {
   let targetUrl = req.query.url as string;
-  if (!targetUrl) return res.status(400).send("URL is required");
+  if (!targetUrl) { res.status(400).send("URL is required"); return; }
 
   try {
     while (targetUrl.includes("%25")) targetUrl = decodeURIComponent(targetUrl);
@@ -436,7 +436,7 @@ router.get("/hls-proxy", async (req, res) => {
   while (targetUrl.endsWith(".") && !targetUrl.endsWith(".m3u8")) targetUrl = targetUrl.slice(0, -1);
 
   if (!isAllowedProxyHost(targetUrl)) {
-    return res.status(403).send("Proxy target not allowed");
+    res.status(403).send("Proxy target not allowed"); return;
   }
 
   try {
@@ -483,7 +483,7 @@ router.get("/hls-proxy", async (req, res) => {
     res.setHeader("Access-Control-Allow-Headers", "*");
     res.setHeader("Access-Control-Expose-Headers", "*");
 
-    const contentType = (response.headers["content-type"] || "").toLowerCase();
+    const contentType = (String(response.headers["content-type"] || "")).toLowerCase();
     const isActuallyM3U8 = isM3U8 || contentType.includes("mpegurl") || contentType.includes("application/x-mpegurl");
 
     if (isActuallyM3U8) {
@@ -494,7 +494,8 @@ router.get("/hls-proxy", async (req, res) => {
     }
 
     ["content-length", "content-range", "accept-ranges", "cache-control"].forEach((h) => {
-      if (response.headers[h]) res.setHeader(h, response.headers[h]);
+      const v = response.headers[h];
+      if (v != null) res.setHeader(h, String(v));
     });
 
     res.status(response.status);
@@ -551,12 +552,12 @@ router.get("/hls-proxy", async (req, res) => {
   }
 });
 
-router.get("/stream/:fileId", async (req, res) => {
+router.get("/stream/:fileId", async (req, res): Promise<void> => {
   const { fileId } = req.params;
   const apiKey = process.env.GOOGLE_DRIVE_API_KEY || process.env.VITE_GOOGLE_DRIVE_API_KEY;
 
   if (!apiKey) {
-    return res.status(500).send("Configuração Pendente: Adicione a GOOGLE_DRIVE_API_KEY nos Secrets.");
+    res.status(500).send("Configuração Pendente: Adicione a GOOGLE_DRIVE_API_KEY nos Secrets."); return;
   }
 
   try {
@@ -567,7 +568,7 @@ router.get("/stream/:fileId", async (req, res) => {
     if (checkRes.status === 403) {
       const data = JSON.stringify(checkRes.data);
       if (data.includes("downloadQuotaExceeded")) {
-        return res.status(403).json({ code: "QUOTA_EXCEEDED", message: "Este filme está muito popular hoje! O Google Drive limitou o streaming direto." });
+        res.status(403).json({ code: "QUOTA_EXCEEDED", message: "Este filme está muito popular hoje! O Google Drive limitou o streaming direto." }); return;
       }
       const confirmMatch = data.match(/confirm=([a-zA-Z0-9-_]+)/);
       if (confirmMatch) url += `&confirm=${confirmMatch[1]}`;
@@ -575,15 +576,18 @@ router.get("/stream/:fileId", async (req, res) => {
 
     const response = await axios({ method: "get", url, responseType: "stream", headers: { Range: req.headers.range || "" }, timeout: 60000 });
 
-    if (response.status >= 400) return res.status(response.status).send(`Erro do Google Drive: ${response.status}`);
+    if (response.status >= 400) { res.status(response.status).send(`Erro do Google Drive: ${response.status}`); return; }
 
+    const rawContentType = String(response.headers["content-type"] || "");
     const headers: Record<string, string> = {
       "Accept-Ranges": "bytes",
-      "Content-Type": response.headers["content-type"]?.includes("matroska") ? "video/webm" : (response.headers["content-type"] || "video/mp4"),
+      "Content-Type": rawContentType.includes("matroska") ? "video/webm" : (rawContentType || "video/mp4"),
     };
 
-    if (response.headers["content-length"]) headers["Content-Length"] = response.headers["content-length"];
-    if (response.headers["content-range"]) headers["Content-Range"] = response.headers["content-range"];
+    const cl = response.headers["content-length"];
+    if (cl != null) headers["Content-Length"] = String(cl);
+    const cr = response.headers["content-range"];
+    if (cr != null) headers["Content-Range"] = String(cr);
 
     res.writeHead(response.status, headers);
     response.data.pipe(res);
@@ -597,9 +601,9 @@ router.get("/stream/:fileId", async (req, res) => {
   }
 });
 
-router.get("/auth/google/url", (req, res) => {
+router.get("/auth/google/url", (req, res): void => {
   const clientId = process.env.VITE_GOOGLE_CLIENT_ID;
-  if (!clientId) return res.status(500).json({ error: "VITE_GOOGLE_CLIENT_ID não configurada." });
+  if (!clientId) { res.status(500).json({ error: "VITE_GOOGLE_CLIENT_ID não configurada." }); return; }
 
   const APP_URL = process.env.APP_URL || `https://${req.get("host")}`;
   const redirectUri = `${APP_URL}/auth/google/callback`;
@@ -616,20 +620,21 @@ router.get("/auth/google/url", (req, res) => {
   res.json({ url: `https://accounts.google.com/o/oauth2/v2/auth?${params}` });
 });
 
-router.post("/terabox/convert", async (req, res) => {
+router.post("/terabox/convert", async (req, res): Promise<void> => {
   const { url } = req.body;
-  if (!url) return res.status(400).json({ error: "URL do TeraBox é obrigatória." });
+  if (!url) { res.status(400).json({ error: "URL do TeraBox é obrigatória." }); return; }
 
   if (url.includes("player.kingx.dev/#")) {
     const hash = url.split("#")[1];
     if (hash) {
       const params = new URLSearchParams(hash);
-      return res.json({
+      res.json({
         success: true,
         directUrl: url,
         videoUrl: params.get("video_url") ? decodeURIComponent(params.get("video_url")!) : null,
         subtitleUrl: params.get("subtitle_url") ? decodeURIComponent(params.get("subtitle_url")!) : null,
       });
+      return;
     }
   }
 
@@ -649,21 +654,23 @@ router.post("/terabox/convert", async (req, res) => {
 
     if (kingxMatch || teradlMatch) {
       const directUrl = kingxMatch ? kingxMatch[0] : teradlMatch![0];
-      if (teradlMatch && !kingxMatch) return res.json({ success: true, videoUrl: directUrl });
+      if (teradlMatch && !kingxMatch) { res.json({ success: true, videoUrl: directUrl }); return; }
       const hash = directUrl.split("#")[1];
       if (hash) {
         const params = new URLSearchParams(hash);
-        return res.json({
+        res.json({
           success: true,
           directUrl,
           videoUrl: params.get("video_url") ? decodeURIComponent(params.get("video_url")!) : null,
           subtitleUrl: params.get("subtitle_url") ? decodeURIComponent(params.get("subtitle_url")!) : null,
         });
+        return;
       }
-      return res.json({ success: true, directUrl });
+      res.json({ success: true, directUrl });
+      return;
     }
     const m3u8Match = html.match(/https?:\/\/[^"']+\.m3u8[^"']*/);
-    if (m3u8Match) return res.json({ success: true, videoUrl: m3u8Match[0] });
+    if (m3u8Match) { res.json({ success: true, videoUrl: m3u8Match[0] }); return; }
 
     res.status(404).json({ error: "Não foi possível converter automaticamente.", details: "Padrão não encontrado." });
   } catch (error: any) {
