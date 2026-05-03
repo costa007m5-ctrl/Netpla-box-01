@@ -840,11 +840,10 @@ const NetflixPlayer: React.FC<NetflixPlayerProps> = ({
             video.play().catch(e => { console.warn("Autoplay block", e); setAutoplayBlocked(true); setShowControls(true); setIsPlaying(false); });
           }
         } else {
-          let videoToPlayProxiedPlain = videoToPlay;
-          if (lowerSrc.includes('workers.dev')) {
-             videoToPlayProxiedPlain = `/api/hls-proxy?url=${encodeURIComponent(videoToPlay)}`;
-          }
-          video.src = videoToPlayProxiedPlain;
+          // Non-HLS video (MP4, MKV, AVI, etc.)
+          // Use direct URL - no proxy needed for most sources
+          video.src = videoToPlay;
+          video.preload = 'auto';
           video.load();
           video.addEventListener('loadedmetadata', () => {
                let safeStartPoint = startPoint;
@@ -1191,6 +1190,10 @@ const NetflixPlayer: React.FC<NetflixPlayerProps> = ({
         if (duration > 0) {
           if (time > 10 && time < (duration - threshold)) {
              localStorage.setItem(`netplay_progress_${movieId}`, time.toString());
+             // Also call onProgress to save to Supabase
+             if (onProgress) {
+               onProgress(time, duration);
+             }
           } else if (time >= (duration - threshold)) {
              localStorage.removeItem(`netplay_progress_${movieId}`);
           }
@@ -1201,9 +1204,9 @@ const NetflixPlayer: React.FC<NetflixPlayerProps> = ({
     const interval = setInterval(saveProgress, 10000); // Save every 10s
     return () => {
       clearInterval(interval);
-      saveProgress();
+      saveProgress(); // Save on unmount
     };
-  }, [movieId]);
+  }, [movieId, onProgress, isMovie]);
 
   useEffect(() => {
     let timer: any;
@@ -1884,11 +1887,14 @@ const NetflixPlayer: React.FC<NetflixPlayerProps> = ({
                    onClick={(e) => {
                      e.stopPropagation();
                      setAutoplayBlocked(false);
+                     setIsLoading(false);
+                     setLoadingProgress(100);
+                     setShowLogoOverlay(false);
                      videoRef.current?.play().catch(()=>console.warn("Still blocked"));
                    }}
-                   className="bg-red-600 text-white px-10 py-5 rounded-2xl font-black uppercase tracking-widest text-[14px] md:text-[18px] italic shadow-[0_0_40px_rgba(220,38,38,0.5)] hover:scale-105 hover:bg-white hover:text-red-600 transition-all flex items-center gap-4 animate-bounce"
+                   className="bg-red-600 text-white px-10 py-5 rounded-2xl font-black uppercase tracking-widest text-[14px] md:text-[18px] italic shadow-[0_0_40px_rgba(220,38,38,0.5)] hover:scale-105 hover:bg-white hover:text-red-600 transition-all flex items-center gap-4"
                  >
-                   <Play size={28} fill="currentColor" /> Tocar Para Iniciar
+                   <Play size={28} fill="currentColor" /> Reproduzir
                  </button>
                </motion.div>
             )}
@@ -1912,32 +1918,20 @@ const NetflixPlayer: React.FC<NetflixPlayerProps> = ({
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
+                    // Tentar reparar primeiro, se não funcionar, iniciar manualmente
                     toggleReparar();
-                  }}
-                  className="bg-white text-black px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-[11px] italic shadow-2xl hover:scale-105 transition-all flex items-center gap-2"
-                >
-                  <RotateCw size={18} /> Reparar Conexão
-                </button>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setIsLoading(false);
-                    setLoadingProgress(100);
-                    setShowLogoOverlay(false);
-                    try {
-                      if (!document.fullscreenElement) {
-                        document.documentElement.requestFullscreen().catch(() => {});
+                    setTimeout(() => {
+                      if (videoRef.current && videoRef.current.paused) {
+                        setIsLoading(false);
+                        setLoadingProgress(100);
+                        setShowLogoOverlay(false);
+                        videoRef.current.play().catch(() => {});
                       }
-                      if (screen.orientation && (screen.orientation as any).lock) {
-                        (screen.orientation as any).lock('landscape').catch(() => {});
-                      }
-                    } catch(e) {}
-                    if (videoRef.current) videoRef.current.play().catch(() => {});
-                    // play() will trigger handlePlaying which locks orientation.
+                    }, 2000);
                   }}
-                  className="bg-red-600/20 text-red-500 border border-red-600/30 px-8 py-3 rounded-2xl font-black uppercase tracking-widest text-[10px] italic hover:bg-red-600 hover:text-white transition-all"
+                  className="bg-red-600 text-white px-10 py-5 rounded-2xl font-black uppercase tracking-widest text-[14px] italic shadow-[0_0_40px_rgba(220,38,38,0.5)] hover:scale-105 hover:bg-white hover:text-red-600 transition-all flex items-center gap-4"
                 >
-                  Iniciar Manualmente
+                  <Play size={28} fill="currentColor" /> Reproduzir Agora
                 </button>
                 {onSwitchPlayer && (
                   <button
@@ -1945,12 +1939,11 @@ const NetflixPlayer: React.FC<NetflixPlayerProps> = ({
                       e.stopPropagation();
                       onSwitchPlayer();
                     }}
-                    className="mt-2 bg-blue-600/20 text-blue-500 border border-blue-600/30 px-8 py-3 rounded-2xl font-black uppercase tracking-widest text-[10px] italic hover:bg-blue-600 hover:text-white transition-all w-full flex justify-center items-center gap-2"
+                    className="text-gray-400 text-[10px] font-bold uppercase tracking-widest hover:text-white transition-all"
                   >
-                    <span>Abrir Player Nativo (Rápido)</span>
+                    Ou tente o player nativo
                   </button>
                 )}
-                <p className="text-[9px] text-gray-500 font-bold uppercase tracking-widest italic animate-pulse mt-2">Servidor Instável? Tente o Player Nativo</p>
               </motion.div>
             )}
           </motion.div>

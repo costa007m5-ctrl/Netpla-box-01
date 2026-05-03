@@ -3591,10 +3591,19 @@ export default function App() {
           fetchMyList();
         })
         .subscribe();
+      
+      // Adicionar listener em tempo real para a tabela de watch_history (continuar assistindo)
+      const watchChannel = supabase
+        .channel('public:watch_history')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'watch_history' }, () => {
+          fetchContinueWatching();
+        })
+        .subscribe();
 
       return () => {
         supabase.removeChannel(channel);
         supabase.removeChannel(listChannel);
+        supabase.removeChannel(watchChannel);
       };
     } else {
       setMyMovies([]);
