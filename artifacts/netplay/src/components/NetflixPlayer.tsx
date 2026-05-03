@@ -636,7 +636,7 @@ const NetflixPlayer: React.FC<NetflixPlayerProps> = ({
         
         const startPoint = initialTime > 0 ? Math.max(0, initialTime - 2) : -1;
         
-        if (lowerSrc.includes('.m3u8')) {
+        if (lowerSrc.includes('.m3u8') || (lowerSrc.includes('workers.dev') && lowerSrc.includes('fast_stream'))) {
           let videoToPlayProxied = videoToPlay;
           
           // Only proxy kingx.dev (CORS-restricted).
