@@ -1,7 +1,7 @@
 {
   "version": 2,
   "framework": null,
-  "buildCommand": "pnpm install && pnpm --filter @workspace/netplay run build:vercel",
+  "buildCommand": "pnpm install --frozen-lockfile && pnpm --filter @workspace/netplay run build:vercel",
   "outputDirectory": "artifacts/netplay/dist/public",
   "functions": {
     "artifacts/netplay/api/index.ts": {
