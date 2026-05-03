@@ -1,0 +1,43 @@
+{
+  "short_name": "Netflix Clone",
+  "name": "Netflix Premium Experience",
+  "description": "Assista seus filmes e séries favoritos offline e receba notificações nativas.",
+  "icons": [
+    {
+      "src": "https://upload.wikimedia.org/wikipedia/commons/0/0b/Netflix-avatar.png",
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "https://upload.wikimedia.org/wikipedia/commons/0/0b/Netflix-avatar.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "https://upload.wikimedia.org/wikipedia/commons/0/0b/Netflix-avatar.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "theme_color": "#e50914",
+  "background_color": "#000000",
+  "categories": ["entertainment", "video"],
+  "shortcuts": [
+    {
+      "name": "Minha Lista",
+      "url": "/?tab=mylist",
+      "description": "Ver meus filmes salvos"
+    },
+    {
+      "name": "Downloads",
+      "url": "/?tab=downloads",
+      "description": "Ver conteúdos offline"
+    }
+  ]
+}
