@@ -1,20 +1,18 @@
-import pino from "pino";
+type LogArg = Record<string, unknown> | string | Error;
 
-const isProduction = process.env.NODE_ENV === "production";
+function fmt(obj: LogArg, msg?: string): string {
+  if (typeof obj === "string") return obj;
+  const m = msg ? `${msg} ` : "";
+  try {
+    return m + JSON.stringify(obj, Object.getOwnPropertyNames(obj));
+  } catch {
+    return m + String(obj);
+  }
+}
 
-export const logger = pino({
-  level: process.env.LOG_LEVEL ?? "info",
-  redact: [
-    "req.headers.authorization",
-    "req.headers.cookie",
-    "res.headers['set-cookie']",
-  ],
-  ...(isProduction
-    ? {}
-    : {
-        transport: {
-          target: "pino-pretty",
-          options: { colorize: true },
-        },
-      }),
-});
+export const logger = {
+  info:  (obj: LogArg, msg?: string) => console.log("[INFO]",  fmt(obj, msg)),
+  error: (obj: LogArg, msg?: string) => console.error("[ERROR]", fmt(obj, msg)),
+  warn:  (obj: LogArg, msg?: string) => console.warn("[WARN]",  fmt(obj, msg)),
+  debug: (obj: LogArg, msg?: string) => console.debug("[DEBUG]", fmt(obj, msg)),
+};
