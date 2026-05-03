@@ -1,0 +1,4 @@
+# Ignore api-server as it's not needed for Vercel deployment
+artifacts/api-server
+artifacts/mockup-sandbox
+scripts
