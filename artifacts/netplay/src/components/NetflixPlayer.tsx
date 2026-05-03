@@ -179,6 +179,15 @@ const NetflixPlayer: React.FC<NetflixPlayerProps> = ({
   const [activeSrc, setActiveSrc] = useState(parsedUrls.video_url);
   const [activeSubtitleUrl, setActiveSubtitleUrl] = useState(parsedUrls.subtitle_url);
   const [sessionKey, setSessionKey] = useState(() => Date.now());
+
+  // Detects raw Terabox share URLs that need on-demand stream resolution
+  const isRawTeraboxUrl = (url: string | null | undefined): boolean => {
+    if (!url) return false;
+    return ['terabox.com', 'teraboxapp.com', 'dubox.com', 'nephobox.com',
+            '1024terabox.com', 'freeterabox.com', '4funbox.com',
+            'mirrobox.com', 'momerybox.com', 'teraboxlink.com', 'terafileshare.com']
+      .some(d => url.includes(d));
+  };
   
   // Classificação indicativa local e estática para não quebrar dependências externas
   const ageRating = useMemo(() => {
@@ -592,7 +601,7 @@ const NetflixPlayer: React.FC<NetflixPlayerProps> = ({
     setIsLoading(true);
     setLoadingProgress(0);
     retryCountRef.current = 0;
-    const initPlayer = () => {
+    const initPlayer = (srcOverride?: string) => {
       if (!video) return;
 
       iframeLoadedRef.current = false;
@@ -612,7 +621,7 @@ const NetflixPlayer: React.FC<NetflixPlayerProps> = ({
         video.load();
       } catch (e) {}
 
-      const videoToPlay = activeSrc;
+      const videoToPlay = srcOverride || activeSrc;
       if (!videoToPlay) return;
 
       const lowerSrc = videoToPlay.toLowerCase();
@@ -1093,7 +1102,26 @@ const NetflixPlayer: React.FC<NetflixPlayerProps> = ({
     video.addEventListener('error', handleError);
 
     let isMounted = true;
-    const cleanupInit = initPlayer();
+    let cleanupInit: (() => void) | undefined;
+
+    // Resolve raw Terabox share URLs to a fresh fast_stream token before playing
+    const resolveAndStart = async () => {
+      let resolvedUrl = activeSrc;
+      if (resolvedUrl && isRawTeraboxUrl(resolvedUrl)) {
+        setLoadingProgress(10);
+        try {
+          const resp = await fetch(`/api/stream-url?url=${encodeURIComponent(resolvedUrl)}`);
+          const json = await resp.json();
+          if (json.stream_url) resolvedUrl = json.stream_url;
+        } catch {
+          // fall through with original URL
+        }
+      }
+      if (!isMounted) return;
+      cleanupInit = initPlayer(resolvedUrl ?? undefined) as (() => void) | undefined;
+    };
+
+    resolveAndStart();
 
     return () => {
       isMounted = false;

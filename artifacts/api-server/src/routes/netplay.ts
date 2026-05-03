@@ -137,6 +137,48 @@ router.get("/terabox-pro", async (req, res) => {
   }
 });
 
+router.get("/stream-url", async (req, res) => {
+  const { url, quality } = req.query;
+  if (!url) return res.status(400).json({ error: "URL required" });
+
+  const apiKey = process.env.TERABOX_PRO_API_KEY;
+  if (!apiKey) return res.status(500).json({ error: "TERABOX_PRO_API_KEY not configured." });
+
+  const preferredQuality = (quality as string) || "1080p";
+  const qualityOrder = ["1080p", "720p", "480p", "360p"];
+
+  try {
+    const response = await axios.get(
+      `https://xapiverse.com/api/terabox-pro?url=${encodeURIComponent(url as string)}`,
+      { headers: { "Content-Type": "application/json", "xAPIverse-Key": apiKey }, timeout: 30000 }
+    );
+
+    const data = response.data;
+    const vid = data.list && Array.isArray(data.list) && data.list.length > 0 ? data.list[0] : data;
+
+    let streamUrl: string | null = null;
+    if (vid.fast_stream_url && typeof vid.fast_stream_url === "object") {
+      const startIdx = qualityOrder.indexOf(preferredQuality);
+      const ordered = startIdx >= 0 ? [...qualityOrder.slice(startIdx), ...qualityOrder.slice(0, startIdx)] : qualityOrder;
+      for (const q of ordered) {
+        if (vid.fast_stream_url[q]) { streamUrl = vid.fast_stream_url[q]; break; }
+      }
+    }
+    streamUrl = streamUrl || vid.recommended_url || vid.normal_dlink || vid.url || vid.dlink || vid.stream_url || null;
+
+    if (!streamUrl) return res.status(404).json({ error: "No stream URL found in API response." });
+
+    return res.json({
+      stream_url: streamUrl,
+      title: vid.filename || vid.name || "",
+      quality: preferredQuality,
+    });
+  } catch (error: any) {
+    logger.error({ err: error }, "stream-url error");
+    return res.status(500).json({ error: "Failed to generate stream URL", details: error.message });
+  }
+});
+
 router.get("/debug-env", requireAdminJwt, (req, res) => {
   res.json({
     hasUrl: !!(process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL),
