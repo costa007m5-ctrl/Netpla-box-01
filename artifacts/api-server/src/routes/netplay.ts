@@ -201,10 +201,35 @@ router.get("/admin/users", requireAdminJwt, async (req, res) => {
   }
 });
 
+async function requireAuthJwt(req: Request, res: Response): Promise<string | null> {
+  if (!supabasePublic) {
+    res.status(503).json({ error: "Server not configured: Supabase keys missing." });
+    return null;
+  }
+  const authHeader = req.headers["authorization"] as string | undefined;
+  const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+  if (!token) {
+    res.status(401).json({ error: "Unauthorized: no token provided." });
+    return null;
+  }
+  const { data, error } = await supabasePublic.auth.getUser(token);
+  if (error || !data?.user) {
+    res.status(401).json({ error: "Unauthorized: invalid or expired token." });
+    return null;
+  }
+  return data.user.id;
+}
+
 router.get("/referrals", async (req, res) => {
-  const { userId } = req.query;
   if (!supabaseAdmin) return res.status(500).json({ error: "Supabase service key not configured" });
-  if (!userId) return res.status(400).json({ error: "userId required" });
+
+  const callerId = await requireAuthJwt(req, res);
+  if (!callerId) return;
+
+  const userId = (req.query.userId as string) || callerId;
+  if (userId !== callerId) {
+    return res.status(403).json({ error: "Forbidden: cannot access another user's referrals." });
+  }
 
   try {
     const { data: { users }, error } = await supabaseAdmin.auth.admin.listUsers();
@@ -219,7 +244,7 @@ router.get("/referrals", async (req, res) => {
     const { data: pendingReq } = await supabaseAdmin
       .from("referral_requests")
       .select("*")
-      .eq("user_id", userId as string)
+      .eq("user_id", userId)
       .eq("status", "pending");
 
     return res.json({ count, credits, freeMonths, pending: pendingReq?.length ? pendingReq[0] : null });
@@ -233,7 +258,13 @@ router.get("/referrals", async (req, res) => {
 
 router.post("/referrals/redeem", async (req, res) => {
   if (!supabaseAdmin) return res.status(500).json({ error: "Supabase service key not configured" });
-  const { userId, count, credits, freeMonths } = req.body;
+
+  const callerId = await requireAuthJwt(req, res);
+  if (!callerId) return;
+
+  const { count, credits, freeMonths } = req.body;
+  const userId = callerId;
+
   try {
     const { data: { user }, error: uErr } = await supabaseAdmin.auth.admin.getUserById(userId);
     if (uErr) throw uErr;
@@ -660,6 +691,74 @@ router.get("/auth/google/url", (req, res): void => {
   });
 
   res.json({ url: `https://accounts.google.com/o/oauth2/v2/auth?${params}` });
+});
+
+router.get("/auth/google/callback", async (req, res): Promise<void> => {
+  const { code, error: oauthError } = req.query;
+  const clientId = process.env.VITE_GOOGLE_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  const APP_URL = process.env.APP_URL || `https://${req.get("host")}`;
+  const redirectUri = `${APP_URL}/auth/google/callback`;
+
+  if (oauthError || !code) {
+    res.send(`<script>
+      window.opener && window.opener.postMessage({ type: 'GOOGLE_DRIVE_AUTH_ERROR', error: '${oauthError || 'No code received'}' }, '*');
+      window.close();
+    </script>`);
+    return;
+  }
+
+  if (!clientId || !clientSecret) {
+    res.send(`<script>
+      window.opener && window.opener.postMessage({ type: 'GOOGLE_DRIVE_AUTH_ERROR', error: 'Server not configured' }, '*');
+      window.close();
+    </script>`);
+    return;
+  }
+
+  try {
+    const tokenResponse = await axios.post("https://oauth2.googleapis.com/token", new URLSearchParams({
+      code: code as string,
+      client_id: clientId,
+      client_secret: clientSecret,
+      redirect_uri: redirectUri,
+      grant_type: "authorization_code",
+    }).toString(), {
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      timeout: 10000,
+    });
+
+    const { access_token, refresh_token, expires_in } = tokenResponse.data;
+
+    const userResponse = await axios.get("https://www.googleapis.com/oauth2/v2/userinfo", {
+      headers: { Authorization: `Bearer ${access_token}` },
+      timeout: 8000,
+    });
+
+    const account = {
+      email: userResponse.data.email,
+      name: userResponse.data.name,
+      picture: userResponse.data.picture,
+      access_token,
+      refresh_token,
+      expires_at: Date.now() + (expires_in * 1000),
+    };
+
+    const payload = JSON.stringify(account).replace(/'/g, "\\'").replace(/"/g, '\\"');
+    res.send(`<script>
+      try {
+        const account = JSON.parse('${payload.replace(/\\/g, "\\\\")}');
+        window.opener && window.opener.postMessage({ type: 'GOOGLE_DRIVE_AUTH_SUCCESS', payload: account }, '*');
+      } catch(e) {}
+      window.close();
+    </script>`);
+  } catch (err: any) {
+    logger.error({ err }, "Google OAuth callback error");
+    res.send(`<script>
+      window.opener && window.opener.postMessage({ type: 'GOOGLE_DRIVE_AUTH_ERROR', error: 'Token exchange failed' }, '*');
+      window.close();
+    </script>`);
+  }
 });
 
 router.post("/terabox/convert", async (req, res): Promise<void> => {
