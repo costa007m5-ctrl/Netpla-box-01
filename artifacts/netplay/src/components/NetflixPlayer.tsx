@@ -106,8 +106,9 @@ const NetflixPlayer: React.FC<NetflixPlayerProps> = ({
       // If it's already a direct fast_stream or m3u8 URL, use it directly
       if (isTeraboxFastStream || isDirectM3U8) {
         vToPlay = cleanSrc;
-      } else if (cleanSrc && !cleanSrc.includes('kingx.dev')) {
-        // Try to extract nested video_url parameter
+      } else if (cleanSrc && (!cleanSrc.includes('kingx.dev') || cleanSrc.includes('video_url='))) {
+        // For player.kingx.dev/#video_url=... links, extract the inner URLs and play natively.
+        // For other kingx.dev URLs (no video_url param), let isIframeMode handle as iframe.
         if (cleanSrc.includes('video_url=')) {
           const urlObj = new URL(cleanSrc, window.location.origin);
           
@@ -165,7 +166,9 @@ const NetflixPlayer: React.FC<NetflixPlayerProps> = ({
     const lowerSrc = parsedUrls.video_url.toLowerCase();
     
     // Se o link for explicitamente para ser embutido e tocar como uma página Web (Iframe)
-    if (lowerSrc.includes('player.kingx.dev') || lowerSrc.includes('/embed/') || lowerSrc.includes('iframe') || lowerSrc.includes('superflix') || lowerSrc.includes('embed.')) {
+    // player.kingx.dev/#video_url=... → extract and play natively (NOT iframe)
+    const isKingxWithVideoParam = lowerSrc.includes('player.kingx.dev') && lowerSrc.includes('video_url=');
+    if (!isKingxWithVideoParam && (lowerSrc.includes('player.kingx.dev') || lowerSrc.includes('/embed/') || lowerSrc.includes('iframe') || lowerSrc.includes('superflix') || lowerSrc.includes('embed.'))) {
       return true;
     }
     
