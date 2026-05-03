@@ -4,7 +4,11 @@
     "outDir": "dist",
     "rootDir": "src",
     "types": ["node"],
-    "noEmitOnError": false
+    "noEmitOnError": false,
+    "moduleResolution": "bundler",
+    "skipLibCheck": true,
+    "strict": false,
+    "noImplicitAny": false
   },
   "include": ["src"]
 }

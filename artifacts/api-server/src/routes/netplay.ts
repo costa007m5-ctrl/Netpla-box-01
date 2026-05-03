@@ -2,7 +2,7 @@ import { Router, Request, Response, NextFunction } from "express";
 import axios from "axios";
 import { createClient } from "@supabase/supabase-js";
 import { MercadoPagoConfig, Preference, Payment } from "mercadopago";
-import { logger } from "../lib/logger";
+import { logger } from "../lib/logger.js";
 
 const router = Router();
 
