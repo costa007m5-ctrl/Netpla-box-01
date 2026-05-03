@@ -661,6 +661,68 @@ router.get("/hls-proxy", async (req, res): Promise<void> => {
   }
 });
 
+router.get("/video-proxy", async (req, res): Promise<void> => {
+  let targetUrl = req.query.url as string;
+  if (!targetUrl) { res.status(400).send("URL is required"); return; }
+
+  try {
+    while (targetUrl.includes("%25")) targetUrl = decodeURIComponent(targetUrl);
+    if (targetUrl.includes("%3A") || targetUrl.includes("%2F")) targetUrl = decodeURIComponent(targetUrl);
+  } catch (e) {}
+
+  if (!isAllowedProxyHost(targetUrl)) {
+    res.status(403).send("Proxy target not allowed"); return;
+  }
+
+  try {
+    const proxyHeaders: Record<string, string> = {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+      Accept: "video/*,*/*",
+      "Accept-Language": "en-US,en;q=0.9,pt-BR;q=0.8,pt;q=0.7",
+      Connection: "keep-alive",
+      Referer: "https://www.terabox.com/",
+      Origin: "https://www.terabox.com",
+    };
+
+    if (req.headers.range) proxyHeaders["Range"] = req.headers.range;
+
+    const response = await axios({
+      method: "GET",
+      url: targetUrl,
+      responseType: "stream",
+      headers: proxyHeaders,
+      timeout: 60000,
+      validateStatus: () => true,
+      maxRedirects: 10,
+    });
+
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Range");
+    res.setHeader("Access-Control-Expose-Headers", "Content-Length, Content-Range, Accept-Ranges");
+
+    const upstreamContentType = String(response.headers["content-type"] || "video/mp4");
+    res.setHeader("Content-Type", upstreamContentType.startsWith("video/") ? upstreamContentType : "video/mp4");
+    res.setHeader("Content-Disposition", "inline");
+    res.setHeader("Accept-Ranges", "bytes");
+
+    ["content-length", "content-range"].forEach((h) => {
+      const v = response.headers[h];
+      if (v != null) res.setHeader(h, String(v));
+    });
+
+    res.status(response.status === 206 ? 206 : 200);
+    response.data.pipe(res);
+    response.data.on("error", (err: Error) => {
+      logger.error({ err }, "video-proxy stream error");
+      res.end();
+    });
+  } catch (e: any) {
+    logger.error({ err: e }, "video-proxy error");
+    if (!res.headersSent) res.status(500).send("Proxy error");
+  }
+});
+
 router.get("/stream/:fileId", async (req, res): Promise<void> => {
   const { fileId } = req.params;
   const apiKey = process.env.GOOGLE_DRIVE_API_KEY || process.env.VITE_GOOGLE_DRIVE_API_KEY;

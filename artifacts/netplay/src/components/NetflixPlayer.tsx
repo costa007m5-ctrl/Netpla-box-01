@@ -849,6 +849,11 @@ const NetflixPlayer: React.FC<NetflixPlayerProps> = ({
           let videoToPlayProxiedPlain = videoToPlay;
           if (lowerSrc.includes('kingx.dev')) {
              videoToPlayProxiedPlain = `/api/hls-proxy?url=${encodeURIComponent(videoToPlay)}`;
+          } else if (lowerSrc.includes('workers.dev') && !lowerSrc.includes('fast_stream')) {
+            // workers.dev/download?token= links serve files with Content-Disposition: attachment
+            // which causes browsers to download instead of stream. Route through video-proxy
+            // to strip that header and force inline streaming.
+            videoToPlayProxiedPlain = `/api/video-proxy?url=${encodeURIComponent(videoToPlay)}`;
           }
           video.src = videoToPlayProxiedPlain;
           video.load();
