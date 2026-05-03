@@ -140,7 +140,6 @@ const MovieDetailsModal = React.memo(({
   appSettings
 }: MovieDetailsModalProps) => {
   const [isMuted, setIsMuted] = useState(true);
-  const [showVideo, setShowVideo] = useState(false);
   const [isPlayingFullscreen, setIsPlayingFullscreen] = useState(false);
   const [activeInfoTab, setActiveInfoTab] = useState<'details' | 'episodes' | 'similar'>(movie.type === 'series' ? 'episodes' : 'details');
   const [selectedSeason, setSelectedSeason] = useState<number>(1);
@@ -245,14 +244,6 @@ const MovieDetailsModal = React.memo(({
       setSelectedSeason(seasons[0]);
     }
     
-    // Delay video start minimal to allow smooth modal opening
-    const timer = setTimeout(() => {
-      if (movie.videoUrl) {
-        setShowVideo(true);
-      }
-    }, 50);
-    
-    return () => clearTimeout(timer);
   }, [movie, savedEpisodeSeason]);
 
   const backgroundUrl = movie.backdrop_path?.startsWith('http') 
@@ -426,63 +417,10 @@ const MovieDetailsModal = React.memo(({
         
         {/* Hero Section do Modal */}
         <div className="relative h-[40vh] md:h-[85vh] bg-black">
-          <AnimatePresence>
-            {showVideo && movie.videoUrl ? (
-              <div 
-                key="video"
-                className="absolute inset-0 overflow-hidden animate-fade-in"
-              >
-                {isYouTube && ytId ? (
-                  <iframe
-                    className="w-full h-[150%] -mt-[10%] pointer-events-none scale-110"
-                    src={`https://www.youtube.com/embed/${ytId}?autoplay=1&mute=${isMuted ? 1 : 0}&controls=0&showinfo=0&rel=0&loop=1&playlist=${ytId}&modestbranding=1&iv_load_policy=3`}
-                    allow="autoplay; encrypted-media"
-                    frameBorder="0"
-                  />
-                ) : isKingX ? (
-                  <iframe
-                    className="w-full h-full pointer-events-none scale-110"
-                    src={movie.videoUrl}
-                    allow="autoplay; encrypted-media"
-                    frameBorder="0"
-                  />
-                ) : (
-                  <div className={isPlayingFullscreen ? "fixed inset-0 z-[9999]" : "absolute inset-0"}>
-                    <VideoPlayer
-                      movie={{...movie, videoUrl: finalVideoUrl || movie.videoUrl}}
-                      onClose={() => {
-                        if (isPlayingFullscreen) {
-                           setIsPlayingFullscreen(false);
-                        } else {
-                           onClose();
-                        }
-                      }}
-                      onPlayNext={(m, epUrl) => onPlay(m, epUrl, 0)}
-                      initialTime={savedProgress}
-                      appSettings={appSettings}
-                      isBackgroundMode={!isPlayingFullscreen}
-                      onClickBackground={() => setIsPlayingFullscreen(true)}
-                    />
-                  </div>
-                )}
-                {/* Botão de Mudo (SÓ para youtube/kingx pois NetflixPlayer já tem mudo nativo e hide) */}
-                {!isPlayingFullscreen && (isYouTube || isKingX) && (
-                  <button 
-                    onClick={(e) => { e.stopPropagation(); setIsMuted(!isMuted); }}
-                    className="absolute bottom-12 md:bottom-32 right-6 md:right-12 z-[190] bg-white/5 backdrop-blur-2xl text-white p-2 md:p-5 rounded-lg md:rounded-2xl hover:bg-white/10 transition-all border border-white/10 shadow-2xl pointer-events-auto"
-                  >
-                    {isMuted ? <VolumeX size={16} className="md:w-7 md:h-7" /> : <Volume2 size={16} className="md:w-7 md:h-7" />}
-                  </button>
-                )}
-              </div>
-            ) : (
-              <div 
-                key="poster"
-                className="absolute inset-0 bg-cover bg-center animate-fade-in"
-                style={{ backgroundImage: `url("${backgroundUrl}")` }}
-              />
-            )}
-          </AnimatePresence>
+            <div 
+            className="absolute inset-0 bg-cover bg-center"
+            style={{ backgroundImage: `url("${backgroundUrl}")` }}
+          />
           
           <div className="absolute inset-0 bg-gradient-to-t from-[#111] via-[#111]/60 to-transparent z-10 pointer-events-none" />
           <div className="absolute inset-0 bg-gradient-to-r from-[#111] via-transparent to-transparent z-10 pointer-events-none" />
