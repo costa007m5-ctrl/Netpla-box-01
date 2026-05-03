@@ -627,13 +627,10 @@ const NetflixPlayer: React.FC<NetflixPlayerProps> = ({
         if (lowerSrc.includes('.m3u8')) {
           let videoToPlayProxied = videoToPlay;
           
-          // Detect stream type
-          const isWorkersDevStream = lowerSrc.includes('workers.dev');
-          const isTeraApiStream = lowerSrc.includes('tera-api') || lowerSrc.includes('iteraplay');
-          const isFastStream = lowerSrc.includes('fast_stream');
-          
-          // Route all HLS streams through the server-side proxy to avoid CORS/403 issues
-          if (isWorkersDevStream || isTeraApiStream || isFastStream || lowerSrc.includes('kingx.dev')) {
+          // Only proxy kingx.dev (CORS-restricted).
+          // fast_stream / iteraplay / workers.dev are served by a Cloudflare Worker that
+          // blocks datacenter IPs — they MUST load directly from the real browser IP.
+          if (lowerSrc.includes('kingx.dev')) {
             videoToPlayProxied = `/api/hls-proxy?url=${encodeURIComponent(videoToPlay)}`;
           }
           
@@ -665,10 +662,10 @@ const NetflixPlayer: React.FC<NetflixPlayerProps> = ({
               maxStarvationDelay: 2, // Faster recovery
               maxLoadingDelay: 2,
               
-              // Aggressive retry for Terabox streams
-              manifestLoadingMaxRetry: 30,
-              levelLoadingMaxRetry: 30,
-              fragLoadingMaxRetry: 30,
+              // Let the app-level retry logic handle failures (fail fast so the UI can react)
+              manifestLoadingMaxRetry: 1,
+              levelLoadingMaxRetry: 5,
+              fragLoadingMaxRetry: 5,
               manifestLoadingRetryDelay: 500, // Faster retry
               levelLoadingRetryDelay: 500,
               fragLoadingRetryDelay: 500,
@@ -773,14 +770,18 @@ const NetflixPlayer: React.FC<NetflixPlayerProps> = ({
               console.error("FATAL HLS ERROR:", { type: data.type, details: data.details, response: data.response });
               
               if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-                // More aggressive retry for Terabox streams
-                if (retryCountRef.current < 35) { 
+                // 403 = permanent upstream block — fail immediately, don't hammer the server
+                const is403 = data.response?.code === 403;
+                const maxRetries = is403 ? 2 : 35;
+
+                if (retryCountRef.current < maxRetries) {
                   retryCountRef.current++;
                   setLoadingProgress(prev => Math.max(prev, 15));
                   
-                  // Faster exponential backoff
-                  const retryDelay = Math.min(300 * Math.pow(1.15, retryCountRef.current - 1), 5000);
-                  console.log(`Retry ${retryCountRef.current}/35 in ${retryDelay}ms...`);
+                  const retryDelay = is403
+                    ? 800
+                    : Math.min(300 * Math.pow(1.15, retryCountRef.current - 1), 5000);
+                  console.log(`Retry ${retryCountRef.current}/${maxRetries} in ${retryDelay}ms...`);
                   
                   setTimeout(() => {
                     if (data.details === Hls.ErrorDetails.MANIFEST_LOAD_ERROR || 
@@ -788,22 +789,21 @@ const NetflixPlayer: React.FC<NetflixPlayerProps> = ({
                         data.details === Hls.ErrorDetails.MANIFEST_PARSING_ERROR ||
                         data.response?.code === 403 || data.response?.code === 404 ||
                         data.response?.code === 503) {
-                        // Full reload for manifest errors
                         hls.loadSource(videoToPlayRef.current || videoToPlay);
                     } else if (data.details === Hls.ErrorDetails.FRAG_LOAD_ERROR ||
                                data.details === Hls.ErrorDetails.FRAG_LOAD_TIMEOUT) {
-                        // For fragment errors, try continuing from current position
                         hls.startLoad(video?.currentTime || -1);
                     } else {
                         hls.startLoad();
                     }
                   }, retryDelay);
                 } else {
-                  setError({ 
-                    message: "O servidor do vídeo está demorando para responder. Toque em 'Reparar' para tentar novamente.", 
-                    type: 'network' 
-                  });
+                  const msg = is403
+                    ? "Acesso bloqueado pelo servidor de vídeo. Verifique se o link ainda é válido ou tente outro."
+                    : "O servidor do vídeo está demorando para responder. Toque em 'Reparar' para tentar novamente.";
+                  setError({ message: msg, type: 'network' });
                   setIsLoading(false);
+                  setLoadingProgress(0);
                   setShowStuckButton(true);
                 }
               }
@@ -835,7 +835,7 @@ const NetflixPlayer: React.FC<NetflixPlayerProps> = ({
           }
         } else {
           let videoToPlayProxiedPlain = videoToPlay;
-          if (lowerSrc.includes('workers.dev') || lowerSrc.includes('tera-api') || lowerSrc.includes('iteraplay') || lowerSrc.includes('fast_stream') || lowerSrc.includes('kingx.dev')) {
+          if (lowerSrc.includes('kingx.dev')) {
              videoToPlayProxiedPlain = `/api/hls-proxy?url=${encodeURIComponent(videoToPlay)}`;
           }
           video.src = videoToPlayProxiedPlain;
