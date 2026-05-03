@@ -1,77 +1,27 @@
-# NetPlay - Netflix-like Streaming App
+# Workspace
 
 ## Overview
-NetPlay is a Netflix-style streaming platform (originally called "NetPremium") ported from Vercel to Replit. It provides a rich UI for browsing, searching, and watching movies and TV series, with features like user profiles, watch parties, admin dashboard, and payment integration.
 
-## Architecture
+pnpm workspace monorepo using TypeScript. Each package manages its own dependencies.
 
-### Frontend (`artifacts/netplay/`)
-- **React 19 + Vite + TypeScript** with Tailwind CSS v4
-- **React Router DOM** for client-side routing
-- **Supabase** for auth, database, and real-time features
-- **Firebase** for analytics/auth
-- **Motion** for animations
-- **HLS.js + ArtPlayer** for video streaming
+## Stack
 
-### Backend (`artifacts/api-server/`)
-- **Express 5** API server
-- Routes in `src/routes/netplay.ts` covering:
-  - `/api/hls-proxy` — HLS stream proxying (bypasses CORS)
-  - `/api/stream/:fileId` — Google Drive video streaming
-  - `/api/terabox-pro` — Terabox video extraction
-  - `/api/terabox/convert` — Terabox URL conversion
-  - `/api/payments/*` — Mercado Pago payment integration
-  - `/api/admin/*` — Admin panel API (users, settings, referrals)
-  - `/api/notifications/send` — OneSignal push notifications
-  - `/api/webhooks/supabase/onesignal` — Supabase webhook for notifications
-  - `/api/auth/google/url` — Google OAuth URL generation
+- **Monorepo tool**: pnpm workspaces
+- **Node.js version**: 24
+- **Package manager**: pnpm
+- **TypeScript version**: 5.9
+- **API framework**: Express 5
+- **Database**: PostgreSQL + Drizzle ORM
+- **Validation**: Zod (`zod/v4`), `drizzle-zod`
+- **API codegen**: Orval (from OpenAPI spec)
+- **Build**: esbuild (CJS bundle)
 
-### Shared Libraries
-- `lib/api-spec/` — OpenAPI spec (basic health endpoint)
-- `lib/api-client-react/` — Generated React Query hooks
-- `lib/db/` — Drizzle ORM + PostgreSQL (empty schema — app uses Supabase)
+## Key Commands
 
-## Environment Variables Required
-- `VITE_SUPABASE_URL` — Supabase project URL
-- `VITE_SUPABASE_ANON_KEY` — Supabase anon key
-- `SUPABASE_SERVICE_ROLE_KEY` — Supabase service role key (backend only)
-- `VITE_TMDB_API_KEY` — TMDB API key for movie data
-- `GEMINI_API_KEY` — Google Gemini API key (for translation)
-- `VITE_GOOGLE_DRIVE_API_KEY` — Google Drive API key
-- `VITE_GOOGLE_CLIENT_ID` — Google OAuth client ID
-- `GOOGLE_CLIENT_SECRET` — Google OAuth client secret
-- `MERCADO_PAGO_ACCESS_TOKEN` — Mercado Pago access token
-- `VITE_MERCADO_PAGO_PUBLIC_KEY` — Mercado Pago public key
-- `ONESIGNAL_REST_API_KEY` — OneSignal REST API key
-- `VITE_ONESIGNAL_APP_ID` — OneSignal App ID
-- `VITE_FIREBASE_*` — Firebase configuration variables
-- `TERABOX_PRO_API_KEY` — Terabox Pro API key
+- `pnpm run typecheck` — full typecheck across all packages
+- `pnpm run build` — typecheck + build all packages
+- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from OpenAPI spec
+- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
+- `pnpm --filter @workspace/api-server run dev` — run API server locally
 
-## Key Features
-- Netflix-style home with banner, rows, and categories
-- Movie/series search with advanced search page
-- Video player with HLS streaming support
-- Watch Party with real-time sync (uses Supabase Realtime)
-- User profiles with avatar selection
-- Continue watching, My List, Favorites
-- Admin dashboard (users, content scanner, payments)
-- Mercado Pago subscription payments
-- OneSignal push notifications
-- Franchise/universe view (Marvel, DC, Star Wars, etc.)
-- Google Drive streaming integration
-- Terabox streaming integration
-
-## Routing
-- `/` → Home (requires login + profile selection)
-- `/search` → Advanced search
-- `/admin` → Admin panel
-- `/universe` → Franchise universes view
-- `/mylist` → My list
-- `/trending` → Trending content
-- `/provider/:id` → Streaming provider page
-- `/profile-dashboard` → Profile settings
-
-## Notes
-- App uses Supabase as primary database (not Replit's built-in PostgreSQL)
-- Socket.io removed from backend (Supabase Realtime used instead via frontend)
-- Firebase has hardcoded fallback keys for easy setup
+See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details.
