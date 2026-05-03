@@ -11,5 +11,5 @@
     "noEmit": false,
     "allowImportingTsExtensions": false
   },
-  "include": ["./**/*", "../../api-server/src/**/*"]
+  "include": ["./**/*"]
 }
