@@ -7,18 +7,44 @@ import { logger } from "../lib/logger";
 const router = Router();
 
 const supabaseUrl = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "").replace(/['"]/g, "").trim();
+const supabaseAnonKey = (process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || "").replace(/['"]/g, "").trim();
 const supabaseServiceKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || "").replace(/['"]/g, "").trim();
 const supabaseAdmin = supabaseUrl && supabaseServiceKey ? createClient(supabaseUrl, supabaseServiceKey) : null;
+const supabasePublic = supabaseUrl && supabaseAnonKey ? createClient(supabaseUrl, supabaseAnonKey) : null;
 
-function requireAdminSecret(req: Request, res: Response, next: NextFunction): void {
-  const secret = process.env.ADMIN_API_SECRET;
-  if (!secret) {
-    res.status(503).json({ error: "Admin API not configured: ADMIN_API_SECRET is not set." });
+async function requireAdminJwt(req: Request, res: Response, next: NextFunction): Promise<void> {
+  if (!supabaseAdmin || !supabasePublic) {
+    res.status(503).json({ error: "Server not configured: Supabase keys missing." });
     return;
   }
-  const provided = req.headers["x-admin-secret"] as string | undefined;
+  const authHeader = req.headers["authorization"] as string | undefined;
+  const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+  if (!token) {
+    res.status(401).json({ error: "Unauthorized: no token provided." });
+    return;
+  }
+  const { data, error } = await supabasePublic.auth.getUser(token);
+  if (error || !data?.user) {
+    res.status(401).json({ error: "Unauthorized: invalid or expired token." });
+    return;
+  }
+  const isAdmin = data.user.app_metadata?.is_admin === true || data.user.app_metadata?.role === "admin";
+  if (!isAdmin) {
+    res.status(403).json({ error: "Forbidden: admin access required." });
+    return;
+  }
+  next();
+}
+
+function requireWebhookSecret(req: Request, res: Response, next: NextFunction): void {
+  const secret = process.env.WEBHOOK_SECRET;
+  if (!secret) {
+    res.status(503).json({ error: "Webhook secret not configured." });
+    return;
+  }
+  const provided = req.headers["x-webhook-secret"] as string | undefined;
   if (!provided || provided !== secret) {
-    res.status(401).json({ error: "Unauthorized" });
+    res.status(401).json({ error: "Unauthorized webhook request." });
     return;
   }
   next();
@@ -66,26 +92,28 @@ router.get("/terabox-pro", async (req, res) => {
     });
 
     const data = response.data;
+    const qualityOrder = ["1080p", "720p", "480p", "360p"];
+
+    const pickQuality = (obj: any) => {
+      const startIdx = qualityOrder.indexOf(preferredQuality);
+      const ordered = startIdx >= 0 ? [...qualityOrder.slice(startIdx), ...qualityOrder.slice(0, startIdx)] : qualityOrder;
+      for (const q of ordered) {
+        if (obj[q]) { return { url: obj[q], quality: q }; }
+      }
+      return null;
+    };
 
     if (data.list && Array.isArray(data.list)) {
-      const qualityOrder = ["1080p", "720p", "480p", "360p"];
       data.list = data.list.map((item: any) => {
         if (item.fast_stream_url) {
-          const startIdx = qualityOrder.indexOf(preferredQuality);
-          const ordered = startIdx >= 0 ? [...qualityOrder.slice(startIdx), ...qualityOrder.slice(0, startIdx)] : qualityOrder;
-          for (const q of ordered) {
-            if (item.fast_stream_url[q]) { item.recommended_url = item.fast_stream_url[q]; item.recommended_quality = q; break; }
-          }
+          const picked = pickQuality(item.fast_stream_url);
+          if (picked) { item.recommended_url = picked.url; item.recommended_quality = picked.quality; }
         }
         return item;
       });
     } else if (data.fast_stream_url) {
-      const qualityOrder = ["1080p", "720p", "480p", "360p"];
-      const startIdx = qualityOrder.indexOf(preferredQuality);
-      const ordered = startIdx >= 0 ? [...qualityOrder.slice(startIdx), ...qualityOrder.slice(0, startIdx)] : qualityOrder;
-      for (const q of ordered) {
-        if (data.fast_stream_url[q]) { data.recommended_url = data.fast_stream_url[q]; data.recommended_quality = q; break; }
-      }
+      const picked = pickQuality(data.fast_stream_url);
+      if (picked) { data.recommended_url = picked.url; data.recommended_quality = picked.quality; }
     }
 
     return res.json(data);
@@ -95,7 +123,17 @@ router.get("/terabox-pro", async (req, res) => {
   }
 });
 
-router.get("/admin/users", requireAdminSecret, async (req, res) => {
+router.get("/debug-env", requireAdminJwt, (req, res) => {
+  res.json({
+    hasUrl: !!(process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL),
+    hasKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+    hasMPToken: !!(process.env.MERCADO_PAGO_ACCESS_TOKEN || process.env.MERCADOPAGO_ACCESS_TOKEN),
+    NODE_ENV: process.env.NODE_ENV,
+    host: req.headers.host,
+  });
+});
+
+router.get("/admin/users", requireAdminJwt, async (req, res) => {
   if (!supabaseAdmin) return res.status(500).json({ error: "Supabase service key not configured" });
   try {
     const { data: { users }, error } = await supabaseAdmin.auth.admin.listUsers();
@@ -160,7 +198,7 @@ router.post("/referrals/redeem", async (req, res) => {
   }
 });
 
-router.get("/admin/referrals/requests", requireAdminSecret, async (req, res) => {
+router.get("/admin/referrals/requests", requireAdminJwt, async (req, res) => {
   if (!supabaseAdmin) return res.status(500).json({ error: "Supabase service key not configured" });
   try {
     const { data, error } = await supabaseAdmin.from("referral_requests").select("*").order("created_at", { ascending: false });
@@ -171,7 +209,7 @@ router.get("/admin/referrals/requests", requireAdminSecret, async (req, res) => 
   }
 });
 
-router.post("/admin/referrals/approve", requireAdminSecret, async (req, res) => {
+router.post("/admin/referrals/approve", requireAdminJwt, async (req, res) => {
   if (!supabaseAdmin) return res.status(500).json({ error: "Supabase service key not configured" });
   const { requestId, status } = req.body;
   try {
@@ -183,7 +221,7 @@ router.post("/admin/referrals/approve", requireAdminSecret, async (req, res) => 
   }
 });
 
-router.post("/admin/updatesettings", requireAdminSecret, async (req, res) => {
+router.post("/admin/updatesettings", requireAdminJwt, async (req, res) => {
   if (!supabaseAdmin) return res.status(500).json({ error: "Supabase service key not configured" });
   const { userId, plan, status, expiresAt } = req.body;
   if (!userId) return res.status(400).json({ error: "userId required" });
@@ -306,7 +344,7 @@ router.post("/payments/webhook", async (req, res) => {
   res.status(200).send("OK");
 });
 
-router.post("/webhooks/supabase/onesignal", async (req, res) => {
+router.post("/webhooks/supabase/onesignal", requireWebhookSecret, async (req, res) => {
   const { type, table, record } = req.body;
   if (type !== "INSERT" || (table !== "movies" && table !== "series")) return res.status(200).send("Ignored");
 
@@ -339,7 +377,7 @@ router.post("/webhooks/supabase/onesignal", async (req, res) => {
   }
 });
 
-router.post("/notifications/send", requireAdminSecret, async (req, res) => {
+router.post("/notifications/send", requireAdminJwt, async (req, res) => {
   const { title, message, imageUrl, data } = req.body;
   const appId = process.env.VITE_ONESIGNAL_APP_ID;
   const restApiKey = process.env.ONESIGNAL_REST_API_KEY;
@@ -582,48 +620,38 @@ router.post("/terabox/convert", async (req, res) => {
   }
 
   try {
-    const sources = [
-      async () => {
-        const converterUrl = `https://www.teraboxdownloader.pro/p/fs.html?q=${encodeURIComponent(url)}&m=1`;
-        const response = await axios.get(converterUrl, {
-          headers: {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-            Referer: "https://www.teraboxdownloader.pro/",
-          },
-          timeout: 10000,
-        });
-        const html = response.data;
-        const kingxMatch = html.match(/https:\/\/player\.kingx\.dev\/#[^"']+/);
-        const teradlMatch = html.match(/https:\/\/teradl\.kingx\.dev\/[^"']+/);
-        if (kingxMatch || teradlMatch) {
-          const directUrl = kingxMatch ? kingxMatch[0] : teradlMatch![0];
-          if (teradlMatch && !kingxMatch) return { videoUrl: directUrl };
-          const hash = directUrl.split("#")[1];
-          if (hash) {
-            const params = new URLSearchParams(hash);
-            return { directUrl, videoUrl: params.get("video_url") ? decodeURIComponent(params.get("video_url")!) : null, subtitleUrl: params.get("subtitle_url") ? decodeURIComponent(params.get("subtitle_url")!) : null };
-          }
-          return { directUrl };
-        }
-        const m3u8Match = html.match(/https?:\/\/[^"']+\.m3u8[^"']*/);
-        if (m3u8Match) return { videoUrl: m3u8Match[0] };
-        throw new Error("Padrão não encontrado no teraboxdownloader.pro");
+    const converterUrl = `https://www.teraboxdownloader.pro/p/fs.html?q=${encodeURIComponent(url)}&m=1`;
+    const response = await axios.get(converterUrl, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+        Referer: "https://www.teraboxdownloader.pro/",
       },
-    ];
+      timeout: 10000,
+    });
+    const html = response.data;
+    const kingxMatch = html.match(/https:\/\/player\.kingx\.dev\/#[^"']+/);
+    const teradlMatch = html.match(/https:\/\/teradl\.kingx\.dev\/[^"']+/);
 
-    for (const source of sources) {
-      try {
-        const result: any = await source();
-        if (result && (result.videoUrl || result.directUrl)) {
-          return res.json({ success: true, ...result });
-        }
-      } catch (e: any) {
-        logger.warn({ err: e }, "Fonte falhou");
+    if (kingxMatch || teradlMatch) {
+      const directUrl = kingxMatch ? kingxMatch[0] : teradlMatch![0];
+      if (teradlMatch && !kingxMatch) return res.json({ success: true, videoUrl: directUrl });
+      const hash = directUrl.split("#")[1];
+      if (hash) {
+        const params = new URLSearchParams(hash);
+        return res.json({
+          success: true,
+          directUrl,
+          videoUrl: params.get("video_url") ? decodeURIComponent(params.get("video_url")!) : null,
+          subtitleUrl: params.get("subtitle_url") ? decodeURIComponent(params.get("subtitle_url")!) : null,
+        });
       }
+      return res.json({ success: true, directUrl });
     }
+    const m3u8Match = html.match(/https?:\/\/[^"']+\.m3u8[^"']*/);
+    if (m3u8Match) return res.json({ success: true, videoUrl: m3u8Match[0] });
 
-    res.status(404).json({ error: "Não foi possível converter automaticamente.", details: "Todas as fontes falharam." });
+    res.status(404).json({ error: "Não foi possível converter automaticamente.", details: "Padrão não encontrado." });
   } catch (error: any) {
     logger.error({ err: error }, "Erro crítico ao converter TeraBox");
     res.status(500).json({ error: "Erro interno ao processar o link.", details: error.message });

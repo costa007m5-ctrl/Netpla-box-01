@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Bell, Send, Check, AlertCircle } from 'lucide-react';
+import { supabase } from '../../lib/supabase';
 
 export const AdminOneSignalTab: React.FC = () => {
   const [testStatus, setTestStatus] = useState<string | null>(null);
@@ -11,10 +12,13 @@ export const AdminOneSignalTab: React.FC = () => {
     setIsSending(true);
     setTestStatus(null);
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
       const response = await fetch('/api/notifications/send', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
           title: 'Teste de OneSignal',
@@ -26,11 +30,9 @@ export const AdminOneSignalTab: React.FC = () => {
         setTestStatus('Notificação enviada com sucesso!');
       } else {
         const errorData = await response.json().catch(() => ({}));
-        console.error('Erro na resposta:', errorData);
         setTestStatus('Falha ao enviar: ' + (errorData.error || 'Erro desconhecido. Verifique se ONESIGNAL_REST_API_KEY e VITE_ONESIGNAL_APP_ID estão configurados.'));
       }
     } catch (error) {
-      console.error('Erro:', error);
       setTestStatus('Erro de rede ao enviar notificação.');
     } finally {
       setIsSending(false);
@@ -119,6 +121,7 @@ export const AdminOneSignalTab: React.FC = () => {
               <li><strong>Type:</strong> HTTP Request</li>
               <li><strong>Method:</strong> POST</li>
               <li><strong>URL (Copie este valor):</strong> <code className="bg-black/50 px-2 py-1 rounded text-red-400 break-all">{window.location.origin}/api/webhooks/supabase/onesignal</code></li>
+              <li>Adicione o header <strong>x-webhook-secret</strong> com o valor da variável <strong>WEBHOOK_SECRET</strong> configurada no servidor.</li>
             </ul>
           </div>
         </div>

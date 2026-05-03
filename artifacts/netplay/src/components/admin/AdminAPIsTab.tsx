@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Server, CheckCircle2, XCircle } from 'lucide-react';
+import { supabase } from '../../lib/supabase';
 
 interface EnvStatus {
   hasUrl: boolean;
@@ -15,19 +16,26 @@ export function AdminAPIsTab() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch('/api/debug-env')
-      .then(res => {
-        if (!res.ok) throw new Error('API request failed');
-        return res.json();
+    const load = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      fetch('/api/debug-env', {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
       })
-      .then(data => {
-        setStatus(data);
-        setLoading(false);
-      })
-      .catch(err => {
-        setError(err.message);
-        setLoading(false);
-      });
+        .then(res => {
+          if (!res.ok) throw new Error('API request failed');
+          return res.json();
+        })
+        .then(data => {
+          setStatus(data);
+          setLoading(false);
+        })
+        .catch(err => {
+          setError(err.message);
+          setLoading(false);
+        });
+    };
+    load();
   }, []);
 
   return (
