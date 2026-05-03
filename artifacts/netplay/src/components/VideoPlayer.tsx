@@ -341,6 +341,20 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ movie, onClose, profileId, pr
         setFinalVideoUrl(u);
         return;
       }
+
+      // teradl.kingx.dev URLs are direct video proxy streams — use as-is
+      if (u.includes('teradl.kingx.dev')) {
+        setExtractedVideoUrl(u);
+        setFinalVideoUrl(u);
+        return;
+      }
+
+      // player.kingx.dev URLs (with or without video_url param) — pass to NetflixPlayer which handles iframe/extraction
+      if (u.includes('player.kingx.dev')) {
+        setExtractedVideoUrl(u);
+        setFinalVideoUrl(u);
+        return;
+      }
       
       const isTera = u.includes('terabox.com') || u.includes('teraboxapp.com') || u.includes('dubox.com') || u.includes('nephobox.com') || u.includes('1024terabox.com') || u.includes('freeterabox.com') || u.includes('4funbox.com') || u.includes('mirrobox.com') || u.includes('momerybox.com') || u.includes('teraboxlink.com') || u.includes('terafileshare.com');
       
