@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, Request, Response, NextFunction } from "express";
 import axios from "axios";
 import { createClient } from "@supabase/supabase-js";
 import { MercadoPagoConfig, Preference, Payment } from "mercadopago";
@@ -10,11 +10,53 @@ const supabaseUrl = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL |
 const supabaseServiceKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || "").replace(/['"]/g, "").trim();
 const supabaseAdmin = supabaseUrl && supabaseServiceKey ? createClient(supabaseUrl, supabaseServiceKey) : null;
 
+function requireAdminSecret(req: Request, res: Response, next: NextFunction): void {
+  const secret = process.env.ADMIN_API_SECRET;
+  if (!secret) {
+    res.status(503).json({ error: "Admin API not configured: ADMIN_API_SECRET is not set." });
+    return;
+  }
+  const provided = req.headers["x-admin-secret"] as string | undefined;
+  if (!provided || provided !== secret) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  next();
+}
+
+const HLS_PROXY_ALLOWED_HOSTS = new Set([
+  "workers.dev",
+  "tera-api30.workers.dev",
+  "iteraplay.tera-api30.workers.dev",
+  "player.kingx.dev",
+  "teradl.kingx.dev",
+  "teraboxdownloader.pro",
+  "www.teraboxdownloader.pro",
+  "googlevideo.com",
+  "storage.googleapis.com",
+  "cdn.discordapp.com",
+]);
+
+function isAllowedProxyHost(rawUrl: string): boolean {
+  try {
+    const { hostname } = new URL(rawUrl);
+    for (const allowed of HLS_PROXY_ALLOWED_HOSTS) {
+      if (hostname === allowed || hostname.endsWith("." + allowed)) return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 router.get("/terabox-pro", async (req, res) => {
   const { url, quality } = req.query;
   if (!url) return res.status(400).json({ error: "URL required" });
 
-  const apiKey = process.env.TERABOX_PRO_API_KEY || "sk_6d7363a619840df0a07afe194613bf9a";
+  const apiKey = process.env.TERABOX_PRO_API_KEY;
+  if (!apiKey) {
+    return res.status(500).json({ error: "TERABOX_PRO_API_KEY not configured." });
+  }
   const preferredQuality = (quality as string) || "1080p";
 
   try {
@@ -53,17 +95,7 @@ router.get("/terabox-pro", async (req, res) => {
   }
 });
 
-router.get("/debug-env", (req, res) => {
-  res.json({
-    hasUrl: !!(process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL),
-    hasKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
-    hasMPToken: !!(process.env.MERCADO_PAGO_ACCESS_TOKEN || process.env.MERCADOPAGO_ACCESS_TOKEN),
-    NODE_ENV: process.env.NODE_ENV,
-    host: req.headers.host,
-  });
-});
-
-router.get("/admin/users", async (req, res) => {
+router.get("/admin/users", requireAdminSecret, async (req, res) => {
   if (!supabaseAdmin) return res.status(500).json({ error: "Supabase service key not configured" });
   try {
     const { data: { users }, error } = await supabaseAdmin.auth.admin.listUsers();
@@ -128,7 +160,7 @@ router.post("/referrals/redeem", async (req, res) => {
   }
 });
 
-router.get("/admin/referrals/requests", async (req, res) => {
+router.get("/admin/referrals/requests", requireAdminSecret, async (req, res) => {
   if (!supabaseAdmin) return res.status(500).json({ error: "Supabase service key not configured" });
   try {
     const { data, error } = await supabaseAdmin.from("referral_requests").select("*").order("created_at", { ascending: false });
@@ -139,7 +171,7 @@ router.get("/admin/referrals/requests", async (req, res) => {
   }
 });
 
-router.post("/admin/referrals/approve", async (req, res) => {
+router.post("/admin/referrals/approve", requireAdminSecret, async (req, res) => {
   if (!supabaseAdmin) return res.status(500).json({ error: "Supabase service key not configured" });
   const { requestId, status } = req.body;
   try {
@@ -151,7 +183,7 @@ router.post("/admin/referrals/approve", async (req, res) => {
   }
 });
 
-router.post("/admin/updatesettings", async (req, res) => {
+router.post("/admin/updatesettings", requireAdminSecret, async (req, res) => {
   if (!supabaseAdmin) return res.status(500).json({ error: "Supabase service key not configured" });
   const { userId, plan, status, expiresAt } = req.body;
   if (!userId) return res.status(400).json({ error: "userId required" });
@@ -284,10 +316,11 @@ router.post("/webhooks/supabase/onesignal", async (req, res) => {
   const imageUrl = record.backdrop_path ? (record.backdrop_path.startsWith("http") ? record.backdrop_path : `https://image.tmdb.org/t/p/w500${record.backdrop_path}`) : null;
   const APP_URL = process.env.APP_URL || `https://${req.get("host")}`;
   const targetUrl = `${APP_URL}/movie/${record.id}`;
-  const appId = process.env.VITE_ONESIGNAL_APP_ID || "581f23c1-2b57-4646-8780-6cd2ccbba30e";
+  const appId = process.env.VITE_ONESIGNAL_APP_ID;
   const restApiKey = process.env.ONESIGNAL_REST_API_KEY;
 
   if (!restApiKey) return res.status(500).json({ error: "ONESIGNAL_REST_API_KEY não configurada." });
+  if (!appId) return res.status(500).json({ error: "VITE_ONESIGNAL_APP_ID não configurada." });
 
   try {
     await axios.post("https://onesignal.com/api/v1/notifications", {
@@ -306,11 +339,12 @@ router.post("/webhooks/supabase/onesignal", async (req, res) => {
   }
 });
 
-router.post("/notifications/send", async (req, res) => {
+router.post("/notifications/send", requireAdminSecret, async (req, res) => {
   const { title, message, imageUrl, data } = req.body;
-  const appId = process.env.VITE_ONESIGNAL_APP_ID || "581f23c1-2b57-4646-8780-6cd2ccbba30e";
+  const appId = process.env.VITE_ONESIGNAL_APP_ID;
   const restApiKey = process.env.ONESIGNAL_REST_API_KEY;
   if (!restApiKey) return res.status(500).json({ error: "ONESIGNAL_REST_API_KEY não configurada." });
+  if (!appId) return res.status(500).json({ error: "VITE_ONESIGNAL_APP_ID não configurada." });
 
   try {
     const response = await axios.post("https://onesignal.com/api/v1/notifications", {
@@ -348,6 +382,10 @@ router.get("/hls-proxy", async (req, res) => {
   } catch (e) {}
 
   while (targetUrl.endsWith(".") && !targetUrl.endsWith(".m3u8")) targetUrl = targetUrl.slice(0, -1);
+
+  if (!isAllowedProxyHost(targetUrl)) {
+    return res.status(403).send("Proxy target not allowed");
+  }
 
   try {
     const isFromWorker = targetUrl.includes("workers.dev");
@@ -427,6 +465,7 @@ router.get("/hls-proxy", async (req, res) => {
                 }
               } catch (e) { return line; }
             }
+            if (!isAllowedProxyHost(absoluteUri)) return line;
             if (!absoluteUri.includes("/api/hls-proxy")) {
               return `/api/hls-proxy?url=${encodeURIComponent(absoluteUri)}`;
             }
@@ -437,6 +476,7 @@ router.get("/hls-proxy", async (req, res) => {
               if (!uri.startsWith("http")) {
                 try { uri = new URL(uri, finalUrl).toString(); } catch (e) {}
               }
+              if (!isAllowedProxyHost(uri)) return match;
               return `URI="/api/hls-proxy?url=${encodeURIComponent(uri)}"`;
             });
           }
@@ -463,7 +503,7 @@ router.get("/stream/:fileId", async (req, res) => {
   const { fileId } = req.params;
   const apiKey = process.env.GOOGLE_DRIVE_API_KEY || process.env.VITE_GOOGLE_DRIVE_API_KEY;
 
-  if (!apiKey || apiKey === "your_google_drive_api_key_here") {
+  if (!apiKey) {
     return res.status(500).send("Configuração Pendente: Adicione a GOOGLE_DRIVE_API_KEY nos Secrets.");
   }
 
