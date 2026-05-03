@@ -333,27 +333,47 @@ router.post("/admin/updatesettings", requireAdminJwt, async (req, res) => {
   }
 });
 
+// Server-side plan catalog — client cannot override price or planId
+const PLAN_CATALOG: Record<string, { title: string; price: number }> = {
+  basic:    { title: "Plano Básico",    price: 9.9  },
+  standard: { title: "Plano Standard",  price: 15.9 },
+  premium:  { title: "Plano Premium",   price: 24.9 },
+  hub:      { title: "Plano Hub",       price: 15.9 },
+};
+
 router.post("/payments/create-preference", async (req, res): Promise<void> => {
-  const { title, price, planId, userId, email } = req.body;
+  const callerId = await requireAuthJwt(req, res);
+  if (!callerId) return;
+
+  const { planId } = req.body;
+  const plan = PLAN_CATALOG[planId as string];
+  if (!plan) { res.status(400).json({ error: "Plano inválido." }); return; }
+
   const mpToken = (process.env.MERCADO_PAGO_ACCESS_TOKEN || process.env.MERCADOPAGO_ACCESS_TOKEN || "").replace(/['"]/g, "").trim();
   if (!mpToken) { res.status(500).json({ error: "MERCADO_PAGO_ACCESS_TOKEN não configurado." }); return; }
 
   try {
+    let callerEmail = "user@example.com";
+    if (supabaseAdmin) {
+      const { data: { user } } = await supabaseAdmin.auth.admin.getUserById(callerId);
+      if (user?.email) callerEmail = user.email;
+    }
+
     const client = new MercadoPagoConfig({ accessToken: mpToken });
     const preference = new Preference(client);
     const APP_URL = process.env.APP_URL || `https://${req.get("host")}`;
 
     const response = await preference.create({
       body: {
-        items: [{ id: planId || "hub", title: title || "Assinatura", quantity: 1, unit_price: Number(price) || 15.9, currency_id: "BRL" }],
-        payer: { email: email || "test@test.com" },
+        items: [{ id: planId, title: plan.title, quantity: 1, unit_price: plan.price, currency_id: "BRL" }],
+        payer: { email: callerEmail },
         back_urls: {
           success: `${APP_URL}/menu?payment=success&plan=${planId}`,
           failure: `${APP_URL}/menu?payment=failure`,
           pending: `${APP_URL}/menu?payment=pending`,
         },
         auto_return: "approved",
-        external_reference: `${userId}_${planId}_${Date.now()}`,
+        external_reference: `${callerId}_${planId}_${Date.now()}`,
         notification_url: `${APP_URL}/api/payments/webhook`,
       },
     });
@@ -366,7 +386,13 @@ router.post("/payments/create-preference", async (req, res): Promise<void> => {
 });
 
 router.post("/payments/create-payment", async (req, res): Promise<void> => {
-  const { title, price, planId, userId, email, method, payer, token, installments, payment_method_id, issuer_id } = req.body;
+  const callerId = await requireAuthJwt(req, res);
+  if (!callerId) return;
+
+  const { planId, email, method, payer, token, installments, payment_method_id, issuer_id } = req.body;
+  const plan = PLAN_CATALOG[planId as string];
+  if (!plan) { res.status(400).json({ error: "Plano inválido." }); return; }
+
   const mpToken = (process.env.MERCADO_PAGO_ACCESS_TOKEN || process.env.MERCADOPAGO_ACCESS_TOKEN || "").replace(/['"]/g, "").trim();
   if (!mpToken) { res.status(500).json({ error: "MERCADO_PAGO_ACCESS_TOKEN não configurado." }); return; }
 
@@ -377,17 +403,17 @@ router.post("/payments/create-payment", async (req, res): Promise<void> => {
 
     const response = await payment.create({
       body: {
-        transaction_amount: Number(price) || 15.9,
-        description: title || "Assinatura",
+        transaction_amount: plan.price,
+        description: plan.title,
         payment_method_id: method || payment_method_id,
         token,
         installments: installments || 1,
         issuer_id,
-        external_reference: `${userId}_${planId}_${Date.now()}`,
+        external_reference: `${callerId}_${planId}_${Date.now()}`,
         notification_url: `${APP_URL}/api/payments/webhook`,
         payer: { ...payer, email: email || payer?.email || "user@example.com" },
       },
-      requestOptions: { idempotencyKey: `${userId}_${planId}_${Date.now()}_${Math.random()}` },
+      requestOptions: { idempotencyKey: `${callerId}_${planId}_${Date.now()}_${Math.random()}` },
     });
 
     res.json(response);
@@ -398,6 +424,16 @@ router.post("/payments/create-payment", async (req, res): Promise<void> => {
 });
 
 router.post("/payments/webhook", async (req, res): Promise<void> => {
+  // Validate webhook signature/secret if configured
+  const webhookSecret = process.env.MP_WEBHOOK_SECRET;
+  if (webhookSecret) {
+    const signature = req.headers["x-signature"] as string | undefined;
+    if (!signature || !signature.includes(webhookSecret)) {
+      res.status(401).send("Unauthorized webhook");
+      return;
+    }
+  }
+
   const paymentId = req.query.id || req.body?.data?.id;
   const type = req.query.topic || req.body?.type;
 
