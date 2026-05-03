@@ -4287,17 +4287,12 @@ export default function App() {
       const planId = params.get('plan');
       
       if (paymentStatus === 'success' && planId) {
-        const expiresAt = new Date();
-        expiresAt.setDate(expiresAt.getDate() + 30);
-        await updateAppSettings({ 
-          subscription_plan: planId as any,
-          subscription_status: 'active',
-          subscription_expires_at: expiresAt.toISOString()
-        });
         setIsPlansScreenOpen(false);
-        // Limpar URL após aprovação para não ficar acionando
+        // Clean URL after redirect — do NOT update subscription client-side.
+        // The Mercado Pago webhook (POST /api/payments/webhook) handles verified
+        // server-side subscription updates after payment confirmation.
         window.history.replaceState({}, document.title, window.location.pathname);
-        alert(`Obrigado! Seu pagamento foi processado e seu plano foi atualizado para ${planId.toUpperCase()}.`);
+        alert(`Obrigado! Seu pagamento está sendo processado. O seu plano será atualizado em breve após a confirmação do Mercado Pago.`);
       } else if (paymentStatus === 'failure') {
         alert('Houve um problema com seu pagamento no Mercado Pago. Tente novamente.');
         window.history.replaceState({}, document.title, window.location.pathname);

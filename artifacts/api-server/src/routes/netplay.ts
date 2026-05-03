@@ -679,7 +679,7 @@ router.get("/auth/google/url", (req, res): void => {
   if (!clientId) { res.status(500).json({ error: "VITE_GOOGLE_CLIENT_ID não configurada." }); return; }
 
   const APP_URL = process.env.APP_URL || `https://${req.get("host")}`;
-  const redirectUri = `${APP_URL}/auth/google/callback`;
+  const redirectUri = `${APP_URL}/api/auth/google/callback`;
 
   const params = new URLSearchParams({
     client_id: clientId,
@@ -698,7 +698,7 @@ router.get("/auth/google/callback", async (req, res): Promise<void> => {
   const clientId = process.env.VITE_GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
   const APP_URL = process.env.APP_URL || `https://${req.get("host")}`;
-  const redirectUri = `${APP_URL}/auth/google/callback`;
+  const redirectUri = `${APP_URL}/api/auth/google/callback`;
 
   if (oauthError || !code) {
     res.send(`<script>
