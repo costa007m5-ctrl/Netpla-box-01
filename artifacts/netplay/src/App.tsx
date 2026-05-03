@@ -1,3 +1,4 @@
+import { apiUrl } from './lib/apiUrl';
 import React, { useState, useEffect, useMemo, useCallback, createContext, useContext, useRef, Suspense } from 'react';
 import OneSignal from 'react-onesignal';
 import { Routes, Route, useNavigate, useLocation, Navigate, useParams } from 'react-router-dom';
@@ -4255,7 +4256,7 @@ export default function App() {
     const titles = { hub: 'Netprime Hub', plus: 'Netprime Plus', max: 'Netprime Max' };
     
     try {
-      const response = await fetch('/api/payments/create-preference', {
+      const response = await fetch(apiUrl('/api/payments/create-preference'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

@@ -1,3 +1,4 @@
+import { apiUrl } from '../../lib/apiUrl';
 import React, { useState } from 'react';
 import { Bell, Send, Check, AlertCircle } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
@@ -14,7 +15,7 @@ export const AdminOneSignalTab: React.FC = () => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token;
-      const response = await fetch('/api/notifications/send', {
+      const response = await fetch(apiUrl('/api/notifications/send'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

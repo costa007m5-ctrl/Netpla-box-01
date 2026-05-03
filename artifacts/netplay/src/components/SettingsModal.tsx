@@ -1,3 +1,4 @@
+import { apiUrl } from '../lib/apiUrl';
 import React, { useState } from 'react';
 import { X, Moon, Sun, Globe, Play, Layout, Check, Save, Cloud, ExternalLink, Sparkles, ShieldCheck, Loader2 } from 'lucide-react';
 import { AppSettings } from '../types';
@@ -24,7 +25,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ settings, onClose, onUpda
 
   const handleConnectGoogle = async () => {
     try {
-      const res = await fetch('/api/auth/google/url');
+      const res = await fetch(apiUrl('/api/auth/google/url'));
       const { url } = await res.json();
       
       const authWindow = window.open(url, 'google_auth', 'width=600,height=700');

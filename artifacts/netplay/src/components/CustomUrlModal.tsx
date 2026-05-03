@@ -1,3 +1,4 @@
+import { apiUrl } from '../lib/apiUrl';
 import React, { useState, useEffect } from 'react';
 import { X, Link as LinkIcon, Save, Search, Loader2, FolderOpen, Tv, Film, Plus, Trash2, Sparkles, Cloud, Info, RefreshCcw } from 'lucide-react';
 import { supabase } from '../lib/supabase';
@@ -187,7 +188,7 @@ const CustomUrlModal: React.FC<CustomUrlModalProps> = ({
 
     setIsConverting(true);
     try {
-      const response = await fetch('/api/terabox/convert', {
+      const response = await fetch(apiUrl('/api/terabox/convert'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: teraboxUrl.trim() })

@@ -1,2 +1,4 @@
 name = "netplay"
-pages_build_output_dir = "artifacts/netplay/dist/public"
+
+[assets]
+directory = "artifacts/netplay/dist/public"
