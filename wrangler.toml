@@ -1,5 +1,2 @@
 name = "netplay"
 pages_build_output_dir = "artifacts/netplay/dist/public"
-
-[build]
-command = "pnpm install --no-frozen-lockfile && pnpm --filter @workspace/netplay run build:vercel"
