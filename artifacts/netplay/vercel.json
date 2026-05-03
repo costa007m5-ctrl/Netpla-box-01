@@ -1,0 +1,25 @@
+{
+  "version": 2,
+  "framework": null,
+  "installCommand": "cd ../.. && pnpm install",
+  "buildCommand": "pnpm run build:vercel",
+  "outputDirectory": "dist/public",
+  "functions": {
+    "api/index.ts": {
+      "includeFiles": "../api-server/src/**"
+    }
+  },
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "/api/index"
+    },
+    {
+      "handle": "filesystem"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/index.html"
+    }
+  ]
+}
