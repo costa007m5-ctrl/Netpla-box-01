@@ -1,3 +1,4 @@
+import { apiUrl } from '../../lib/apiUrl';
 import React, { useEffect, useState } from 'react';
 import { Server, CheckCircle2, XCircle } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
@@ -19,7 +20,7 @@ export function AdminAPIsTab() {
     const load = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token;
-      fetch('/api/debug-env', {
+      fetch(apiUrl('/api/debug-env'), {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       })
         .then(res => {

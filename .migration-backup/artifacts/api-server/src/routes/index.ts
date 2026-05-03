@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
-import healthRouter from "./health.js";
-import netplayRouter from "./netplay.js";
+import healthRouter from "./health";
+import netplayRouter from "./netplay";
 
 const router: IRouter = Router();
 

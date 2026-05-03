@@ -201,10 +201,35 @@ router.get("/admin/users", requireAdminJwt, async (req, res) => {
   }
 });
 
+async function requireAuthJwt(req: Request, res: Response): Promise<string | null> {
+  if (!supabasePublic) {
+    res.status(503).json({ error: "Server not configured: Supabase keys missing." });
+    return null;
+  }
+  const authHeader = req.headers["authorization"] as string | undefined;
+  const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+  if (!token) {
+    res.status(401).json({ error: "Unauthorized: no token provided." });
+    return null;
+  }
+  const { data, error } = await supabasePublic.auth.getUser(token);
+  if (error || !data?.user) {
+    res.status(401).json({ error: "Unauthorized: invalid or expired token." });
+    return null;
+  }
+  return data.user.id;
+}
+
 router.get("/referrals", async (req, res) => {
-  const { userId } = req.query;
   if (!supabaseAdmin) return res.status(500).json({ error: "Supabase service key not configured" });
-  if (!userId) return res.status(400).json({ error: "userId required" });
+
+  const callerId = await requireAuthJwt(req, res);
+  if (!callerId) return;
+
+  const userId = (req.query.userId as string) || callerId;
+  if (userId !== callerId) {
+    return res.status(403).json({ error: "Forbidden: cannot access another user's referrals." });
+  }
 
   try {
     const { data: { users }, error } = await supabaseAdmin.auth.admin.listUsers();
@@ -219,7 +244,7 @@ router.get("/referrals", async (req, res) => {
     const { data: pendingReq } = await supabaseAdmin
       .from("referral_requests")
       .select("*")
-      .eq("user_id", userId as string)
+      .eq("user_id", userId)
       .eq("status", "pending");
 
     return res.json({ count, credits, freeMonths, pending: pendingReq?.length ? pendingReq[0] : null });
@@ -233,7 +258,13 @@ router.get("/referrals", async (req, res) => {
 
 router.post("/referrals/redeem", async (req, res) => {
   if (!supabaseAdmin) return res.status(500).json({ error: "Supabase service key not configured" });
-  const { userId, count, credits, freeMonths } = req.body;
+
+  const callerId = await requireAuthJwt(req, res);
+  if (!callerId) return;
+
+  const { count, credits, freeMonths } = req.body;
+  const userId = callerId;
+
   try {
     const { data: { user }, error: uErr } = await supabaseAdmin.auth.admin.getUserById(userId);
     if (uErr) throw uErr;
@@ -302,27 +333,47 @@ router.post("/admin/updatesettings", requireAdminJwt, async (req, res) => {
   }
 });
 
+// Server-side plan catalog — client cannot override price or planId
+const PLAN_CATALOG: Record<string, { title: string; price: number }> = {
+  basic:    { title: "Plano Básico",    price: 9.9  },
+  standard: { title: "Plano Standard",  price: 15.9 },
+  premium:  { title: "Plano Premium",   price: 24.9 },
+  hub:      { title: "Plano Hub",       price: 15.9 },
+};
+
 router.post("/payments/create-preference", async (req, res): Promise<void> => {
-  const { title, price, planId, userId, email } = req.body;
+  const callerId = await requireAuthJwt(req, res);
+  if (!callerId) return;
+
+  const { planId } = req.body;
+  const plan = PLAN_CATALOG[planId as string];
+  if (!plan) { res.status(400).json({ error: "Plano inválido." }); return; }
+
   const mpToken = (process.env.MERCADO_PAGO_ACCESS_TOKEN || process.env.MERCADOPAGO_ACCESS_TOKEN || "").replace(/['"]/g, "").trim();
   if (!mpToken) { res.status(500).json({ error: "MERCADO_PAGO_ACCESS_TOKEN não configurado." }); return; }
 
   try {
+    let callerEmail = "user@example.com";
+    if (supabaseAdmin) {
+      const { data: { user } } = await supabaseAdmin.auth.admin.getUserById(callerId);
+      if (user?.email) callerEmail = user.email;
+    }
+
     const client = new MercadoPagoConfig({ accessToken: mpToken });
     const preference = new Preference(client);
     const APP_URL = process.env.APP_URL || `https://${req.get("host")}`;
 
     const response = await preference.create({
       body: {
-        items: [{ id: planId || "hub", title: title || "Assinatura", quantity: 1, unit_price: Number(price) || 15.9, currency_id: "BRL" }],
-        payer: { email: email || "test@test.com" },
+        items: [{ id: planId, title: plan.title, quantity: 1, unit_price: plan.price, currency_id: "BRL" }],
+        payer: { email: callerEmail },
         back_urls: {
           success: `${APP_URL}/menu?payment=success&plan=${planId}`,
           failure: `${APP_URL}/menu?payment=failure`,
           pending: `${APP_URL}/menu?payment=pending`,
         },
         auto_return: "approved",
-        external_reference: `${userId}_${planId}_${Date.now()}`,
+        external_reference: `${callerId}_${planId}_${Date.now()}`,
         notification_url: `${APP_URL}/api/payments/webhook`,
       },
     });
@@ -335,7 +386,13 @@ router.post("/payments/create-preference", async (req, res): Promise<void> => {
 });
 
 router.post("/payments/create-payment", async (req, res): Promise<void> => {
-  const { title, price, planId, userId, email, method, payer, token, installments, payment_method_id, issuer_id } = req.body;
+  const callerId = await requireAuthJwt(req, res);
+  if (!callerId) return;
+
+  const { planId, email, method, payer, token, installments, payment_method_id, issuer_id } = req.body;
+  const plan = PLAN_CATALOG[planId as string];
+  if (!plan) { res.status(400).json({ error: "Plano inválido." }); return; }
+
   const mpToken = (process.env.MERCADO_PAGO_ACCESS_TOKEN || process.env.MERCADOPAGO_ACCESS_TOKEN || "").replace(/['"]/g, "").trim();
   if (!mpToken) { res.status(500).json({ error: "MERCADO_PAGO_ACCESS_TOKEN não configurado." }); return; }
 
@@ -346,17 +403,17 @@ router.post("/payments/create-payment", async (req, res): Promise<void> => {
 
     const response = await payment.create({
       body: {
-        transaction_amount: Number(price) || 15.9,
-        description: title || "Assinatura",
+        transaction_amount: plan.price,
+        description: plan.title,
         payment_method_id: method || payment_method_id,
         token,
         installments: installments || 1,
         issuer_id,
-        external_reference: `${userId}_${planId}_${Date.now()}`,
+        external_reference: `${callerId}_${planId}_${Date.now()}`,
         notification_url: `${APP_URL}/api/payments/webhook`,
         payer: { ...payer, email: email || payer?.email || "user@example.com" },
       },
-      requestOptions: { idempotencyKey: `${userId}_${planId}_${Date.now()}_${Math.random()}` },
+      requestOptions: { idempotencyKey: `${callerId}_${planId}_${Date.now()}_${Math.random()}` },
     });
 
     res.json(response);
@@ -367,6 +424,16 @@ router.post("/payments/create-payment", async (req, res): Promise<void> => {
 });
 
 router.post("/payments/webhook", async (req, res): Promise<void> => {
+  // Validate webhook signature/secret if configured
+  const webhookSecret = process.env.MP_WEBHOOK_SECRET;
+  if (webhookSecret) {
+    const signature = req.headers["x-signature"] as string | undefined;
+    if (!signature || !signature.includes(webhookSecret)) {
+      res.status(401).send("Unauthorized webhook");
+      return;
+    }
+  }
+
   const paymentId = req.query.id || req.body?.data?.id;
   const type = req.query.topic || req.body?.type;
 
@@ -594,6 +661,68 @@ router.get("/hls-proxy", async (req, res): Promise<void> => {
   }
 });
 
+router.get("/video-proxy", async (req, res): Promise<void> => {
+  let targetUrl = req.query.url as string;
+  if (!targetUrl) { res.status(400).send("URL is required"); return; }
+
+  try {
+    while (targetUrl.includes("%25")) targetUrl = decodeURIComponent(targetUrl);
+    if (targetUrl.includes("%3A") || targetUrl.includes("%2F")) targetUrl = decodeURIComponent(targetUrl);
+  } catch (e) {}
+
+  if (!isAllowedProxyHost(targetUrl)) {
+    res.status(403).send("Proxy target not allowed"); return;
+  }
+
+  try {
+    const proxyHeaders: Record<string, string> = {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+      Accept: "video/*,*/*",
+      "Accept-Language": "en-US,en;q=0.9,pt-BR;q=0.8,pt;q=0.7",
+      Connection: "keep-alive",
+      Referer: "https://www.terabox.com/",
+      Origin: "https://www.terabox.com",
+    };
+
+    if (req.headers.range) proxyHeaders["Range"] = req.headers.range;
+
+    const response = await axios({
+      method: "GET",
+      url: targetUrl,
+      responseType: "stream",
+      headers: proxyHeaders,
+      timeout: 60000,
+      validateStatus: () => true,
+      maxRedirects: 10,
+    });
+
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Range");
+    res.setHeader("Access-Control-Expose-Headers", "Content-Length, Content-Range, Accept-Ranges");
+
+    const upstreamContentType = String(response.headers["content-type"] || "video/mp4");
+    res.setHeader("Content-Type", upstreamContentType.startsWith("video/") ? upstreamContentType : "video/mp4");
+    res.setHeader("Content-Disposition", "inline");
+    res.setHeader("Accept-Ranges", "bytes");
+
+    ["content-length", "content-range"].forEach((h) => {
+      const v = response.headers[h];
+      if (v != null) res.setHeader(h, String(v));
+    });
+
+    res.status(response.status === 206 ? 206 : 200);
+    response.data.pipe(res);
+    response.data.on("error", (err: Error) => {
+      logger.error({ err }, "video-proxy stream error");
+      res.end();
+    });
+  } catch (e: any) {
+    logger.error({ err: e }, "video-proxy error");
+    if (!res.headersSent) res.status(500).send("Proxy error");
+  }
+});
+
 router.get("/stream/:fileId", async (req, res): Promise<void> => {
   const { fileId } = req.params;
   const apiKey = process.env.GOOGLE_DRIVE_API_KEY || process.env.VITE_GOOGLE_DRIVE_API_KEY;
@@ -648,7 +777,7 @@ router.get("/auth/google/url", (req, res): void => {
   if (!clientId) { res.status(500).json({ error: "VITE_GOOGLE_CLIENT_ID não configurada." }); return; }
 
   const APP_URL = process.env.APP_URL || `https://${req.get("host")}`;
-  const redirectUri = `${APP_URL}/auth/google/callback`;
+  const redirectUri = `${APP_URL}/api/auth/google/callback`;
 
   const params = new URLSearchParams({
     client_id: clientId,
@@ -660,6 +789,74 @@ router.get("/auth/google/url", (req, res): void => {
   });
 
   res.json({ url: `https://accounts.google.com/o/oauth2/v2/auth?${params}` });
+});
+
+router.get("/auth/google/callback", async (req, res): Promise<void> => {
+  const { code, error: oauthError } = req.query;
+  const clientId = process.env.VITE_GOOGLE_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  const APP_URL = process.env.APP_URL || `https://${req.get("host")}`;
+  const redirectUri = `${APP_URL}/api/auth/google/callback`;
+
+  if (oauthError || !code) {
+    res.send(`<script>
+      window.opener && window.opener.postMessage({ type: 'GOOGLE_DRIVE_AUTH_ERROR', error: '${oauthError || 'No code received'}' }, '*');
+      window.close();
+    </script>`);
+    return;
+  }
+
+  if (!clientId || !clientSecret) {
+    res.send(`<script>
+      window.opener && window.opener.postMessage({ type: 'GOOGLE_DRIVE_AUTH_ERROR', error: 'Server not configured' }, '*');
+      window.close();
+    </script>`);
+    return;
+  }
+
+  try {
+    const tokenResponse = await axios.post("https://oauth2.googleapis.com/token", new URLSearchParams({
+      code: code as string,
+      client_id: clientId,
+      client_secret: clientSecret,
+      redirect_uri: redirectUri,
+      grant_type: "authorization_code",
+    }).toString(), {
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      timeout: 10000,
+    });
+
+    const { access_token, refresh_token, expires_in } = tokenResponse.data;
+
+    const userResponse = await axios.get("https://www.googleapis.com/oauth2/v2/userinfo", {
+      headers: { Authorization: `Bearer ${access_token}` },
+      timeout: 8000,
+    });
+
+    const account = {
+      email: userResponse.data.email,
+      name: userResponse.data.name,
+      picture: userResponse.data.picture,
+      access_token,
+      refresh_token,
+      expires_at: Date.now() + (expires_in * 1000),
+    };
+
+    const payload = JSON.stringify(account).replace(/'/g, "\\'").replace(/"/g, '\\"');
+    res.send(`<script>
+      try {
+        const account = JSON.parse('${payload.replace(/\\/g, "\\\\")}');
+        window.opener && window.opener.postMessage({ type: 'GOOGLE_DRIVE_AUTH_SUCCESS', payload: account }, '*');
+      } catch(e) {}
+      window.close();
+    </script>`);
+  } catch (err: any) {
+    logger.error({ err }, "Google OAuth callback error");
+    res.send(`<script>
+      window.opener && window.opener.postMessage({ type: 'GOOGLE_DRIVE_AUTH_ERROR', error: 'Token exchange failed' }, '*');
+      window.close();
+    </script>`);
+  }
 });
 
 router.post("/terabox/convert", async (req, res): Promise<void> => {

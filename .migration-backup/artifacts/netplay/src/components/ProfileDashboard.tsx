@@ -1,3 +1,4 @@
+import { apiUrl } from '../lib/apiUrl';
 import React, { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -125,7 +126,7 @@ export default function ProfileDashboard({
     if (!appSettings?.user_id) return;
     setRedeeming(true);
     try {
-      const res = await fetch('/api/referrals/redeem', {
+      const res = await fetch(apiUrl('/api/referrals/redeem'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

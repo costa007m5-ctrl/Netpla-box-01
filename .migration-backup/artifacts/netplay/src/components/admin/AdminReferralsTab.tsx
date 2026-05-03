@@ -1,3 +1,4 @@
+import { apiUrl } from '../../lib/apiUrl';
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import { Check, X, Loader2 } from 'lucide-react';
@@ -16,7 +17,7 @@ export default function AdminReferralsTab() {
       const tokenResp = await supabase.auth.getSession();
       const access_token = tokenResp.data.session?.access_token;
       
-      const res = await fetch('/api/admin/referrals/requests', {
+      const res = await fetch(apiUrl('/api/admin/referrals/requests'), {
         headers: { 'Authorization': `Bearer ${access_token}` }
       });
       if (res.ok) {
@@ -43,7 +44,7 @@ export default function AdminReferralsTab() {
       const tokenResp = await supabase.auth.getSession();
       const access_token = tokenResp.data.session?.access_token;
       
-      const res = await fetch('/api/admin/referrals/approve', {
+      const res = await fetch(apiUrl('/api/admin/referrals/approve'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${access_token}` },
         body: JSON.stringify({ requestId: id, status })

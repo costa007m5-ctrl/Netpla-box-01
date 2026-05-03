@@ -159,13 +159,25 @@ export default function AdminTeraboxTab({ movies, onUpdateMovie, onAddMovie }: {
 
       setScanningStatus(`Rastreando ${list.length} arquivos no TMDB...`);
 
+      const TERABOX_DOMAINS = ['terabox.com', 'teraboxapp.com', 'dubox.com', 'nephobox.com',
+        '1024terabox.com', 'freeterabox.com', '4funbox.com', 'mirrobox.com',
+        'momerybox.com', 'teraboxlink.com', 'terafileshare.com'];
+      const isTeraboxShare = (u?: string) =>
+        !!u && TERABOX_DOMAINS.some(d => u.includes(d));
+
       const mapped = [];
       for (const item of list) {
         const filename = item.filename || item.name || 'Desconhecido';
 
-        // ✅ Store the RAW per-file URL so player generates a fresh stream on every play
-        // Prefer individual file URLs (dlink/surl) over pre-generated fast_stream tokens
-        const rawUrl = item.surl || item.share_url || item.dlink || item.normal_dlink || item.url || folderUrl;
+        // Priority:
+        // 1. recommended_url (fast_stream HLS token) → plays directly via HLS.js
+        // 2. surl/share_url that is a raw Terabox domain → player resolves fresh token at play time
+        // 3. dlink/normal_dlink (direct download) → goes through /api/video-proxy as last resort
+        const rawUrl =
+          item.recommended_url ||
+          (isTeraboxShare(item.surl) ? item.surl : null) ||
+          (isTeraboxShare(item.share_url) ? item.share_url : null) ||
+          item.dlink || item.normal_dlink || item.url || folderUrl;
 
         const searchName = cleanForTmdb(filename);
         const resSearch = await tmdb.get(`/search/multi?query=${encodeURIComponent(searchName)}`);

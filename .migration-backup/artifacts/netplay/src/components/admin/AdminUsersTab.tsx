@@ -1,3 +1,4 @@
+import { apiUrl } from '../../lib/apiUrl';
 import React, { useState, useEffect } from 'react';
 import { Search, Edit3, Trash2, CheckCircle, XCircle } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
@@ -53,7 +54,7 @@ export default function AdminUsersTab() {
         const access_token = tokenResp.data.session?.access_token;
         
         try {
-          const res = await fetch('/api/admin/users', {
+          const res = await fetch(apiUrl('/api/admin/users'), {
             headers: { Authorization: `Bearer ${access_token}` }
           });
           if (res.ok) {
@@ -124,7 +125,7 @@ export default function AdminUsersTab() {
       const tokenResp = await supabase.auth.getSession();
       const access_token = tokenResp.data.session?.access_token;
       
-      const res = await fetch('/api/admin/updatesettings', {
+      const res = await fetch(apiUrl('/api/admin/updatesettings'), {
          method: 'POST',
          headers: {
             'Content-Type': 'application/json',

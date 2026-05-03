@@ -1,3 +1,4 @@
+import { apiUrl } from '../lib/apiUrl';
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
 import { Check, X, Shield, Zap, Sparkles, Star, Users, Smartphone, Tv, Laptop, Crown, MessageCircle } from 'lucide-react';
@@ -30,7 +31,7 @@ export default function PlansScreen({ appSettings, onClose, onUpdatePlan, userEm
     setLoadingPlan(checkoutPlan.id as any);
     try {
       if (method === 'preference') {
-        const response = await fetch('/api/payments/create-preference', {
+        const response = await fetch(apiUrl('/api/payments/create-preference'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -47,7 +48,7 @@ export default function PlansScreen({ appSettings, onClose, onUpdatePlan, userEm
         }
         return data; // Return data so the checkout modal can show the link
       } else if (method === 'credit_card') {
-        const response = await fetch('/api/payments/create-payment', {
+        const response = await fetch(apiUrl('/api/payments/create-payment'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -66,7 +67,7 @@ export default function PlansScreen({ appSettings, onClose, onUpdatePlan, userEm
         const data = await response.json();
         return data;
       } else {
-        const response = await fetch('/api/payments/create-payment', {
+        const response = await fetch(apiUrl('/api/payments/create-payment'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
