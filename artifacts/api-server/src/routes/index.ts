@@ -1,10 +1,10 @@
 import { Router, type IRouter } from "express";
 import healthRouter from "./health";
-import hlsProxyRouter from "./hlsProxy";
+import netplayRouter from "./netplay";
 
 const router: IRouter = Router();
 
 router.use(healthRouter);
-router.use(hlsProxyRouter);
+router.use(netplayRouter);
 
 export default router;
