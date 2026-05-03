@@ -1,6 +1,5 @@
 {
   "version": 2,
-  "framework": null,
   "buildCommand": "pnpm install && pnpm --filter @workspace/netplay run build:vercel",
   "outputDirectory": "artifacts/netplay/dist/public",
   "functions": {
@@ -8,17 +7,14 @@
       "includeFiles": "artifacts/api-server/src/**"
     }
   },
-  "routes": [
+  "rewrites": [
     {
-      "src": "/api/(.*)",
-      "dest": "/artifacts/netplay/api/index"
+      "source": "/api/:path*",
+      "destination": "/artifacts/netplay/api/index"
     },
     {
-      "handle": "filesystem"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/index.html"
+      "source": "/((?!api/).*)",
+      "destination": "/index.html"
     }
   ]
 }
