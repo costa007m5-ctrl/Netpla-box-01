@@ -12,6 +12,8 @@ const supabaseServiceKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || "").replace
 const supabaseAdmin = supabaseUrl && supabaseServiceKey ? createClient(supabaseUrl, supabaseServiceKey) : null;
 const supabasePublic = supabaseUrl && supabaseAnonKey ? createClient(supabaseUrl, supabaseAnonKey) : null;
 
+const OWNER_EMAIL = "costachristopher31@gmail.com";
+
 async function requireAdminJwt(req: Request, res: Response, next: NextFunction): Promise<void> {
   if (!supabaseAdmin || !supabasePublic) {
     res.status(503).json({ error: "Server not configured: Supabase keys missing." });
@@ -28,12 +30,24 @@ async function requireAdminJwt(req: Request, res: Response, next: NextFunction):
     res.status(401).json({ error: "Unauthorized: invalid or expired token." });
     return;
   }
-  const isAdmin = data.user.app_metadata?.is_admin === true || data.user.app_metadata?.role === "admin";
-  if (!isAdmin) {
-    res.status(403).json({ error: "Forbidden: admin access required." });
+  const email = data.user.email ?? "";
+  if (email === OWNER_EMAIL) {
+    next();
     return;
   }
-  next();
+  try {
+    const { data: adminRow } = await supabaseAdmin
+      .from("admin_users")
+      .select("email")
+      .eq("email", email)
+      .single();
+    if (adminRow) {
+      next();
+      return;
+    }
+  } catch {
+  }
+  res.status(403).json({ error: "Forbidden: admin access required." });
 }
 
 function requireWebhookSecret(req: Request, res: Response, next: NextFunction): void {
