@@ -354,19 +354,13 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ movie, onClose, profileId, pr
             let vid = data.list && data.list.length > 0 ? data.list[0] : data;
             
             if (vid) {
-               console.log("[v0] Terabox API response vid:", JSON.stringify(vid, null, 2));
-               console.log("[v0] fast_stream_url object:", vid.fast_stream_url);
-               
-               // Prioritize recommended_url (fast_stream) for best playback
-               // Also check if fast_stream_url is an object with any quality
+               // Get best available fast_stream quality
                let fastStreamUrl = null;
                if (vid.fast_stream_url) {
-                 // Get any available quality - prioritize higher quality
                  fastStreamUrl = vid.fast_stream_url['1080p'] || 
                                  vid.fast_stream_url['720p'] || 
                                  vid.fast_stream_url['480p'] || 
                                  vid.fast_stream_url['360p'] ||
-                                 // Fallback: get the first available key
                                  Object.values(vid.fast_stream_url)[0];
                }
                
@@ -374,8 +368,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ movie, onClose, profileId, pr
                              fastStreamUrl ||
                              vid.normal_dlink || vid.url || vid.stream_url || vid.video_url || 
                              vid.src || (vid.data && vid.data.url) || vid.dlink;
-               
-               console.log("[v0] Selected stream URL:", stUrl);
                
                if (stUrl) {
                   setExtractedVideoUrl(stUrl);
@@ -596,10 +588,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ movie, onClose, profileId, pr
     if (movie.video_url_2) {
       videoUrlOptions.push({ id: 'hd', label: 'Alta Definição (HD)', url: movie.video_url_2 });
     }
-
-    console.log("[v0] Rendering NetflixPlayer with src:", extractedVideoUrl || finalVideoUrl || "EMPTY");
-    console.log("[v0] extractedVideoUrl:", extractedVideoUrl);
-    console.log("[v0] finalVideoUrl:", finalVideoUrl);
 
     return (
       <div className="relative w-full h-full">

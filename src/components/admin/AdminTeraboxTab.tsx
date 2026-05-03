@@ -53,19 +53,21 @@ export default function AdminTeraboxTab({ movies, onUpdateMovie, onAddMovie }: {
     if (!testResult) return null;
     let vid = testResult.list && testResult.list.length > 0 ? testResult.list[0] : testResult;
     
-    // Prioritize recommended_url (fast_stream m3u8) for best playback
-    let url = vid.recommended_url || 
-              vid.fast_stream_url?.['1080p'] || 
-              vid.fast_stream_url?.['720p'] || 
-              vid.fast_stream_url?.['480p'] || 
-              vid.fast_stream_url?.['360p'] || 
+    // Get best available fast_stream quality
+    let fastStreamUrl = null;
+    if (vid.fast_stream_url && typeof vid.fast_stream_url === 'object') {
+      fastStreamUrl = vid.fast_stream_url['1080p'] || 
+                      vid.fast_stream_url['720p'] || 
+                      vid.fast_stream_url['480p'] || 
+                      vid.fast_stream_url['360p'] ||
+                      Object.values(vid.fast_stream_url)[0];
+    }
+    
+    let url = vid.recommended_url || fastStreamUrl || 
               vid.normal_dlink || vid.stream_url || vid.url || vid.video_url || 
               vid.src || (vid.data && vid.data.url) || vid.dlink;
     
-    // Always proxy workers.dev and m3u8 streams for CORS
-    if (url && (url.includes('workers.dev') || url.includes('.m3u8') || url.includes('fast_stream'))) {
-      return `/api/hls-proxy?url=${encodeURIComponent(url)}`;
-    }
+    // Workers.dev streams have CORS enabled, access directly without proxy
     return url;
   }, [testResult]);
 
@@ -115,12 +117,18 @@ export default function AdminTeraboxTab({ movies, onUpdateMovie, onAddMovie }: {
       const mapped = [];
       for (const item of list) {
         const filename = item.filename || item.name || 'Desconhecido';
-        // Prioritize recommended_url (fast_stream m3u8) for best playback
-        const urlToSave = item.recommended_url || 
-                          item.fast_stream_url?.['1080p'] || 
-                          item.fast_stream_url?.['720p'] || 
-                          item.fast_stream_url?.['480p'] || 
-                          item.fast_stream_url?.['360p'] || 
+        
+        // Get best available fast_stream quality
+        let fastStreamUrl = null;
+        if (item.fast_stream_url && typeof item.fast_stream_url === 'object') {
+          fastStreamUrl = item.fast_stream_url['1080p'] || 
+                          item.fast_stream_url['720p'] || 
+                          item.fast_stream_url['480p'] || 
+                          item.fast_stream_url['360p'] ||
+                          Object.values(item.fast_stream_url)[0];
+        }
+        
+        const urlToSave = item.recommended_url || fastStreamUrl || 
                           item.normal_dlink || item.url || item.dlink || item.stream_url || folderUrl;
 
         // Improve TMDB matching by removing years, qualities, and extensions
@@ -259,13 +267,18 @@ export default function AdminTeraboxTab({ movies, onUpdateMovie, onAddMovie }: {
     const data = await res.json();
     if (!res.ok) throw new Error(`${data.error}: ${data.details || ''}`);
     let vid = data.list && data.list.length > 0 ? data.list[0] : data;
-    // Prioritize recommended_url (fast_stream m3u8) for best playback
-    return vid.recommended_url || 
-           vid.fast_stream_url?.['1080p'] || 
-           vid.fast_stream_url?.['720p'] || 
-           vid.fast_stream_url?.['480p'] || 
-           vid.fast_stream_url?.['360p'] || 
-           vid.normal_dlink || vid.url || vid.stream_url || vid.dlink || url;
+    
+    // Get best available fast_stream quality
+    let fastStreamUrl = null;
+    if (vid.fast_stream_url && typeof vid.fast_stream_url === 'object') {
+      fastStreamUrl = vid.fast_stream_url['1080p'] || 
+                      vid.fast_stream_url['720p'] || 
+                      vid.fast_stream_url['480p'] || 
+                      vid.fast_stream_url['360p'] ||
+                      Object.values(vid.fast_stream_url)[0];
+    }
+    
+    return vid.recommended_url || fastStreamUrl || vid.normal_dlink || vid.url || vid.stream_url || vid.dlink || url;
   };
 
   const processUpdateSingle = async (movie: Movie) => {
