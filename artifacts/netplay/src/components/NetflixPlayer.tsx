@@ -632,14 +632,8 @@ const NetflixPlayer: React.FC<NetflixPlayerProps> = ({
           const isTeraApiStream = lowerSrc.includes('tera-api') || lowerSrc.includes('iteraplay');
           const isFastStream = lowerSrc.includes('fast_stream');
           
-          // Workers.dev streams have CORS enabled (access-control-allow-origin: *)
-          // So we can access them directly without proxy - proxy actually causes 403 errors
-          // Only use proxy for streams that need it (like kingx.dev)
-          if (isWorkersDevStream || isTeraApiStream || isFastStream) {
-            // Use direct URL - these have CORS headers
-            videoToPlayProxied = videoToPlay;
-          } else if (lowerSrc.includes('kingx.dev')) {
-            // Only kingx needs proxy
+          // Route all HLS streams through the server-side proxy to avoid CORS/403 issues
+          if (isWorkersDevStream || isTeraApiStream || isFastStream || lowerSrc.includes('kingx.dev')) {
             videoToPlayProxied = `/api/hls-proxy?url=${encodeURIComponent(videoToPlay)}`;
           }
           
@@ -841,7 +835,7 @@ const NetflixPlayer: React.FC<NetflixPlayerProps> = ({
           }
         } else {
           let videoToPlayProxiedPlain = videoToPlay;
-          if (lowerSrc.includes('workers.dev')) {
+          if (lowerSrc.includes('workers.dev') || lowerSrc.includes('tera-api') || lowerSrc.includes('iteraplay') || lowerSrc.includes('fast_stream') || lowerSrc.includes('kingx.dev')) {
              videoToPlayProxiedPlain = `/api/hls-proxy?url=${encodeURIComponent(videoToPlay)}`;
           }
           video.src = videoToPlayProxiedPlain;
