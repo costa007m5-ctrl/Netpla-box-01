@@ -1,6 +1,6 @@
 {
   "buildCommand": "pnpm --filter @workspace/netplay run build",
-  "outputDirectory": "artifacts/netplay/dist",
+  "outputDirectory": "artifacts/netplay/dist/public",
   "rewrites": [
     { "source": "/api/:path*", "destination": "/api" },
     {
